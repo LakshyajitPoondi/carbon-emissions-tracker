@@ -8,9 +8,9 @@ Implement a working, honestly-scoped backend: database schema, API endpoints, an
 
 ## Complete Project Context
 - Problem: organizations lack a centralized way to track energy/fuel/resource consumption, calculate carbon emissions, and generate sustainability reports.
-- MVP explicitly EXCLUDES (do not build these, do not add them "for completeness"): computer vision (YOLO/Detectron2/OpenCV), RFID/barcode/ZPL hardware integration, Kubernetes, Celery, WebSocket, GraphQL, authentication/authorization.
-- Stack: FastAPI, SQLAlchemy + Alembic, PostgreSQL, Docker Compose.
-- No AI/model layer exists in this MVP. Do not introduce one. All calculations are deterministic arithmetic against seeded emission factors.
+- Full stack from the original brief is mandatory — this is not an MVP-style hackathon scope where features get cut for time. The only exclusion is RFID hardware integration (no hardware available, permanently cut). Barcode scanning instead runs via webcam in the browser, merged with OpenCV + a pretrained YOLOv8 model (via `ultralytics`, no custom training) into one "Asset Scan" feature. Kubernetes must actually run (Docker Desktop's built-in K8s), not just exist as manifest files — same standard applies to Celery, WebSocket, GraphQL, and JWT-based authentication/authorization: real, working features, not scaffolding.
+- Stack: FastAPI, SQLAlchemy + Alembic, PostgreSQL, Docker Compose, Celery, WebSocket, GraphQL, OAuth2/JWT auth, OpenCV + YOLOv8 (ultralytics), Kubernetes (Docker Desktop).
+- Emissions calculations remain deterministic `Decimal` arithmetic against seeded emission factors — no AI/model layer there. The only model in the system is the pretrained YOLOv8 used for Asset Scan; do not introduce additional AI/model layers beyond that.
 - Deadline: submission Saturday. Every round should produce something verifiable, not speculative scaffolding.
 
 ## Architecture Responsibilities
@@ -38,7 +38,7 @@ Implement a working, honestly-scoped backend: database schema, API endpoints, an
 - Migrations must run cleanly against a blank database (`docker compose down -v && docker compose up -d && alembic upgrade head`) — this is the standard verification the human will run every time.
 
 ## AI/Model Responsibilities
-None. Do not add any.
+Own the Asset Scan feature's backend surface: integrate a pretrained YOLOv8 model (via `ultralytics`, no custom training/fine-tuning) for detection against frames captured from the browser webcam, merged with OpenCV for frame handling. Keep this isolated from the emissions-calculation logic, which stays deterministic `Decimal` arithmetic.
 
 ## Integration Responsibilities
 - Once endpoints are implemented, you are responsible for confirming the API actually matches `docs/api-contract.md` byte-for-byte in shape (test with `curl`/`httpie`/pytest, not by inspection alone).
