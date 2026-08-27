@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.facility import Facility
 from app.models.organization import Organization
@@ -19,7 +20,11 @@ from app.schemas.error import error_response
 from app.schemas.facility import FacilityCreate, FacilityResponse
 from app.services.reports import facility_emissions_by_source_type
 
-router = APIRouter(prefix="/facilities", tags=["Facilities"])
+router = APIRouter(
+    prefix="/facilities",
+    tags=["Facilities"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post(

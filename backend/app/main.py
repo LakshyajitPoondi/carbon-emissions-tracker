@@ -1,10 +1,11 @@
 """Carbon Emissions Tracking Platform — FastAPI application entry point."""
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.routers import (
+    auth,
     consumption_records,
     emission_factors,
     emission_sources,
@@ -46,9 +47,31 @@ async def validation_exception_handler(request, exc: RequestValidationError):
 
 
 # ---------------------------------------------------------------------------
+# Custom HTTPException handler
+# Auth dependencies (get_current_user) raise HTTPException with a
+# {"code": ..., "message": ...} detail — reshape that (and any other
+# HTTPException) into the contract's standard error shape.
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc: HTTPException):
+    if isinstance(exc.detail, dict) and "code" in exc.detail and "message" in exc.detail:
+        content = error_response(exc.detail["code"], exc.detail["message"])
+    else:
+        content = error_response("HTTP_ERROR", str(exc.detail))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=content,
+        headers=exc.headers,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Router registration — all under /api prefix
 # ---------------------------------------------------------------------------
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(organizations.router, prefix="/api")
 app.include_router(facilities.router, prefix="/api")
 app.include_router(emission_sources.router, prefix="/api")

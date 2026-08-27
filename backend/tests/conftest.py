@@ -47,12 +47,31 @@ def db_session():
 @pytest.fixture()
 def client(db_session):
     """FastAPI TestClient with the DB dependency overridden to use the
-    rollback-scoped session from *db_session*."""
+    rollback-scoped session from *db_session*.
+
+    Every route except /auth/register and /auth/token now requires a bearer
+    token, so this fixture registers+logs in a throwaway test user and sets
+    the token as the client's default Authorization header. Existing tests
+    that predate auth keep working unmodified; tests that specifically need
+    to exercise unauthenticated/invalid-token behavior can override or clear
+    the header themselves.
+    """
 
     def _override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
     with TestClient(app) as c:
+        register_resp = c.post(
+            "/api/auth/register",
+            json={"email": "fixture-user@example.com", "password": "fixture-pass-123"},
+        )
+        assert register_resp.status_code == 201, register_resp.text
+        token_resp = c.post(
+            "/api/auth/token",
+            data={"username": "fixture-user@example.com", "password": "fixture-pass-123"},
+        )
+        assert token_resp.status_code == 200, token_resp.text
+        c.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
         yield c
     app.dependency_overrides.clear()

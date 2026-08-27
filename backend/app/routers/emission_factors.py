@@ -10,11 +10,16 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.emission_factor import EmissionFactor
 from app.schemas.emission_factor import EmissionFactorResponse
 
-router = APIRouter(prefix="/emission-factors", tags=["Emission Factors"])
+router = APIRouter(
+    prefix="/emission-factors",
+    tags=["Emission Factors"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get(
