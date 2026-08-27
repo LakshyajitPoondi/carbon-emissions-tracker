@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.consumption_record import ConsumptionRecord
 from app.models.emission_calculation import EmissionCalculation
@@ -24,7 +25,11 @@ from app.services.emissions import (
     find_applicable_emission_factor,
 )
 
-router = APIRouter(prefix="/consumption-records", tags=["Consumption Records"])
+router = APIRouter(
+    prefix="/consumption-records",
+    tags=["Consumption Records"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post(

@@ -8,9 +8,9 @@ Implement a working, honestly-scoped backend: database schema, API endpoints, an
 
 ## Complete Project Context
 - Problem: organizations lack a centralized way to track energy/fuel/resource consumption, calculate carbon emissions, and generate sustainability reports.
-- MVP explicitly EXCLUDES (do not build these, do not add them "for completeness"): computer vision (YOLO/Detectron2/OpenCV), RFID/barcode/ZPL hardware integration, Kubernetes, Celery, WebSocket, GraphQL, authentication/authorization.
-- Stack: FastAPI, SQLAlchemy + Alembic, PostgreSQL, Docker Compose.
-- No AI/model layer exists in this MVP. Do not introduce one. All calculations are deterministic arithmetic against seeded emission factors.
+- Full stack from the original brief is mandatory — this is not an MVP-style hackathon scope where features get cut for time. The only exclusion is RFID hardware integration (no hardware available, permanently cut). Barcode scanning instead runs via webcam in the browser, merged with OpenCV + a pretrained YOLOv8 model (via `ultralytics`, no custom training) into one "Asset Scan" feature. Kubernetes must actually run (Docker Desktop's built-in K8s), not just exist as manifest files — same standard applies to Celery, WebSocket, GraphQL, and JWT-based authentication/authorization: real, working features, not scaffolding.
+- Stack: FastAPI, SQLAlchemy + Alembic, PostgreSQL, Docker Compose, Celery, WebSocket, GraphQL, OAuth2/JWT auth, OpenCV + YOLOv8 (ultralytics), Kubernetes (Docker Desktop).
+- Emissions calculations remain deterministic `Decimal` arithmetic against seeded emission factors — no AI/model layer there. The only model in the system is the pretrained YOLOv8 used for Asset Scan; do not introduce additional AI/model layers beyond that.
 - Deadline: submission Saturday. Every round should produce something verifiable, not speculative scaffolding.
 
 ## Architecture Responsibilities
@@ -38,7 +38,7 @@ Implement a working, honestly-scoped backend: database schema, API endpoints, an
 - Migrations must run cleanly against a blank database (`docker compose down -v && docker compose up -d && alembic upgrade head`) — this is the standard verification the human will run every time.
 
 ## AI/Model Responsibilities
-None. Do not add any.
+Own the Asset Scan feature's backend surface: integrate a pretrained YOLOv8 model (via `ultralytics`, no custom training/fine-tuning) for detection against frames captured from the browser webcam, merged with OpenCV for frame handling. Keep this isolated from the emissions-calculation logic, which stays deterministic `Decimal` arithmetic.
 
 ## Integration Responsibilities
 - Once endpoints are implemented, you are responsible for confirming the API actually matches `docs/api-contract.md` byte-for-byte in shape (test with `curl`/`httpie`/pytest, not by inspection alone).
@@ -64,16 +64,16 @@ Breaking change: YES/NO
 Wait for human approval before implementing against the new shape.
 
 ## Allowed Operations
-`git status/diff/log`, creating/switching local branches, `pip install`, `docker compose up`/`down` (no `-v`), `alembic revision`/`alembic upgrade`, `pytest`, lint, typecheck, `curl`/API testing commands.
+`git status/diff/log` (read-only inspection only), `pip install`, `docker compose up`/`down` (no `-v`), `alembic revision`/`alembic upgrade`, `pytest`, lint, typecheck, `curl`/API testing commands.
 
 ## Protected Operations (must ask first)
-`git push`, `git merge`, branch deletion, `docker compose down -v`, `alembic downgrade`, any change to `docs/api-contract.md`, any schema change after the frontend has started building against a given contract version.
+Every git operation that changes repo state — branch creation/switching, `git add`/staging, `git commit`, `git push`, `git merge`, `git stash`, `git cherry-pick`, branch deletion — is human-run only; the agent does not execute these itself under any circumstance, not even with prior approval. Also: `docker compose down -v`, `alembic downgrade`, any change to `docs/api-contract.md`, any schema change after the frontend has started building against a given contract version.
 
 ## Forbidden Operations
 `rm -rf`, `sudo`, `git reset --hard`, `git clean -fd`, direct `.git` internals editing, `DROP`/`TRUNCATE` without explicit human approval, deleting the Postgres volume without explicit human approval.
 
 ## Git Rules
-Work on branch `agent/core/<task-name>`. Commit locally with clear, single-purpose messages. Never push automatically — report readiness and wait.
+The human runs all branch creation, staging, commits, and pushes themselves — the agent only inspects (`git status/diff/log`) and never stages, commits, branches, or pushes on its own. Work conceptually against branch `agent/core/<task-name>`, but when a task is done, report exactly what changed and what should be staged/committed with what message, and wait for the human to run those commands.
 
 ## Worktree Rules
 A separate worktree is optional for this project size — only set one up if the human is running you and the Frontend Agent literally concurrently in separate terminals. Otherwise, branch switching is sufficient.

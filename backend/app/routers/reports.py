@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.organization import Organization
 from app.models.report import Report, ReportStatusEnum
@@ -20,7 +21,11 @@ from app.schemas.report import (
 )
 from app.services.reports import organization_report_totals
 
-router = APIRouter(prefix="/reports", tags=["Reports"])
+router = APIRouter(
+    prefix="/reports",
+    tags=["Reports"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 def _detail_response(report: Report, db: Session) -> ReportDetailResponse:

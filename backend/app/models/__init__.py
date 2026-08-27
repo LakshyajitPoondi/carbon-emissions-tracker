@@ -1,5 +1,6 @@
 # Models package — import all models here so Alembic can discover them.
 
+from app.models.user import User  # noqa: F401
 from app.models.organization import Organization  # noqa: F401
 from app.models.facility import Facility  # noqa: F401
 from app.models.emission_source import EmissionSource  # noqa: F401

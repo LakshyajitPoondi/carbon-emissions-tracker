@@ -8,13 +8,18 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.emission_source import EmissionSource, SourceTypeEnum
 from app.models.facility import Facility
 from app.schemas.emission_source import EmissionSourceCreate, EmissionSourceResponse
 from app.schemas.error import error_response
 
-router = APIRouter(prefix="/emission-sources", tags=["Emission Sources"])
+router = APIRouter(
+    prefix="/emission-sources",
+    tags=["Emission Sources"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post(

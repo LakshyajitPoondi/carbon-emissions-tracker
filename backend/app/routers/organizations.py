@@ -8,12 +8,17 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.organization import Organization
 from app.schemas.error import error_response
 from app.schemas.organization import OrganizationCreate, OrganizationResponse
 
-router = APIRouter(prefix="/organizations", tags=["Organizations"])
+router = APIRouter(
+    prefix="/organizations",
+    tags=["Organizations"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post(

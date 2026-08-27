@@ -4,9 +4,33 @@ This is the single source of truth for every frontend/backend interaction in the
 Neither the Core Agent nor the Frontend Agent may change this file unilaterally.
 Changes go through the "Contract Change Protocol" (see agents/core.md and agents/frontend.md).
 
-No authentication in this MVP. All endpoints are open. (Post-MVP: add OAuth2.)
+Every endpoint below except `POST /auth/register` and `POST /auth/token` requires an `Authorization: Bearer <token>` header. Missing or invalid tokens return `401` using the Standard Error Shape.
 
 Base URL (dev): `http://localhost:8000/api`
+
+---
+
+## Auth
+
+### POST /auth/register
+Request:
+```json
+{ "email": "user@example.com", "password": "hunter2!" }
+```
+Response `201`:
+```json
+{ "id": 1, "email": "user@example.com", "created_at": "2026-08-27T10:00:00Z" }
+```
+Errors: `422` if `email`/`password` missing or `email` already registered.
+
+### POST /auth/token
+OAuth2 password flow. Request is `application/x-www-form-urlencoded` (standard OAuth2PasswordRequestForm): `username` (the user's email) and `password`.
+
+Response `200`:
+```json
+{ "access_token": "eyJhbGciOi...", "token_type": "bearer" }
+```
+Errors: `401` if credentials are invalid.
 
 ---
 
