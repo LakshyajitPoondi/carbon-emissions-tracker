@@ -74,14 +74,61 @@ Response `200`: array of facility objects.
 ### POST /emission-sources
 Request:
 ```json
-{ "facility_id": 1, "source_type": "ENERGY", "source_name": "Grid electricity", "unit_of_measurement": "kWh" }
+{ "facility_id": 1, "source_type": "ENERGY", "source_name": "Grid electricity", "unit_of_measurement": "kWh", "barcode_value": "ENSRC-00042" }
 ```
-`source_type` must be one of: `ENERGY`, `FUEL`, `RESOURCE`.
-Response `201`: object + `id`, timestamps.
-Errors: `404` if `facility_id` missing. `422` if `source_type` invalid.
+`source_type` must be one of: `ENERGY`, `FUEL`, `RESOURCE`. `barcode_value` is optional — omit or send `null` if the source has no barcode label yet.
+Response `201`: object + `id`, timestamps, `barcode_value` (`null` if not set).
+Errors: `404` if `facility_id` missing. `422` if `source_type` invalid, or `barcode_value` (when provided) already belongs to another source in the same facility (`BARCODE_ALREADY_ASSIGNED`).
 
 ### GET /emission-sources?facility_id={id}
-Response `200`: array of emission source objects.
+Response `200`: array of emission source objects (each including `barcode_value`).
+
+---
+
+## Asset Scan
+
+Merges the brief's barcode scanner + OpenCV + YOLO/Detectron2 requirements
+into one feature: point a webcam at an emission source's barcode label, get
+back the matching `emission_source`. See `docs/asset-scan-plan.md` for the
+full design rationale, including why a pretrained YOLOv8n (no custom
+training) is used only as an "is anything in frame" presence gate — it has
+no "barcode" class, so pyzbar/zbar does the actual decode and localization.
+
+### POST /facilities/{facility_id}/asset-scan
+Request: `multipart/form-data` with a single `image` file field (JPEG or
+PNG, ≤5MB) — a frame captured from the browser's webcam via
+`canvas.toBlob()`.
+
+Response `200` — barcode decoded and matched:
+```json
+{
+  "decoded_value": "ENSRC-00042",
+  "bounding_box": { "x": 118, "y": 76, "width": 240, "height": 118 },
+  "emission_source": {
+    "id": 7,
+    "facility_id": 1,
+    "source_type": "ENERGY",
+    "source_name": "Grid electricity",
+    "unit_of_measurement": "kWh",
+    "barcode_value": "ENSRC-00042",
+    "created_at": "2026-08-01T09:10:00Z",
+    "updated_at": "2026-08-01T09:10:00Z"
+  }
+}
+```
+`bounding_box` is pixel coordinates in the submitted image, from the decoded
+barcode's own symbol polygon. No `confidence` field — the decode is a
+deterministic pass/fail, not a probabilistic score.
+
+Errors:
+- `404` if `facility_id` doesn't exist.
+- `422 VALIDATION_ERROR` if `image` is missing, unreadable, or over 5MB.
+- `422 NO_BARCODE_DETECTED` if no readable barcode was found in the frame at
+  all (message varies slightly depending on whether the presence gate found
+  *something* in frame that just wasn't a readable barcode, vs. nothing at
+  all — the `code` is the same either way, only `message` differs).
+- `422 BARCODE_NOT_MATCHED` if a barcode decoded successfully but no
+  emission source in this facility carries that `barcode_value`.
 
 ---
 

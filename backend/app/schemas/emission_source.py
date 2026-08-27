@@ -6,6 +6,7 @@ source_type must be one of ENERGY, FUEL, RESOURCE (uppercase).
 
 import enum
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -23,6 +24,7 @@ class EmissionSourceCreate(BaseModel):
     source_type: SourceType
     source_name: str
     unit_of_measurement: str
+    barcode_value: Optional[str] = None
 
     @field_validator("source_name", "unit_of_measurement")
     @classmethod
@@ -30,6 +32,14 @@ class EmissionSourceCreate(BaseModel):
         if not v or not v.strip():
             raise ValueError(f"{info.field_name} must not be empty")
         return v.strip()
+
+    @field_validator("barcode_value")
+    @classmethod
+    def barcode_value_not_blank(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        return v or None
 
 
 class EmissionSourceResponse(BaseModel):
@@ -41,5 +51,6 @@ class EmissionSourceResponse(BaseModel):
     source_type: SourceType
     source_name: str
     unit_of_measurement: str
+    barcode_value: Optional[str] = None
     created_at: datetime
     updated_at: datetime
