@@ -7,3 +7,5 @@ export * from "./emissionsSummary";
 export * from "./report";
 export * from "./error";
 export * from "./user";
+export * from "./assetScan";
+export * from "./liveUpdate";

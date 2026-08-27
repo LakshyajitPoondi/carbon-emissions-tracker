@@ -5,7 +5,8 @@ import { apiClient } from "../api";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
-import type { EmissionsSummary, SourceType } from "../types";
+import { useFacilityLiveUpdates } from "../hooks/useFacilityLiveUpdates";
+import type { ConsumptionRecord, EmissionsSummary, SourceType } from "../types";
 import { SOURCE_TYPES } from "../types";
 import { daysAgoInputValue, formatKgCo2e, todayInputValue } from "../utils/format";
 
@@ -60,6 +61,30 @@ function DashboardForFacility({ facilityId, facilityName }: { facilityId: number
     load();
   }, [load]);
 
+  // Live updates: on a broadcast, refetch the summary rather than trying to
+  // merge the new record into the totals locally. Merging would require
+  // knowing the new record's source_type to add it to the right bucket, but
+  // the broadcast payload only carries emission_source_id (see
+  // docs/api-contract.md) and this screen doesn't otherwise load the
+  // emission-source list — fetching it just to enable a client-side
+  // arithmetic shortcut adds a new failure mode (a stale/missing id->type
+  // mapping) for a marginal gain over reusing the exact same `load()` this
+  // screen's manual "View" button already calls, which is simpler and
+  // provably consistent with the backend's own rounding. Only refetch when
+  // the new record actually falls inside the currently-viewed period —
+  // otherwise the displayed numbers are already correct as-is and
+  // refetching would just be a pointless network call.
+  const handleRecordCreated = useCallback(
+    (record: ConsumptionRecord) => {
+      const recordDate = record.recorded_at.slice(0, 10);
+      if (recordDate >= startDate && recordDate <= endDate) {
+        load();
+      }
+    },
+    [startDate, endDate, load],
+  );
+  const isLive = useFacilityLiveUpdates(facilityId, handleRecordCreated);
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     load();
@@ -73,6 +98,11 @@ function DashboardForFacility({ facilityId, facilityName }: { facilityId: number
       <h1>Dashboard</h1>
       <p className="page__intro">
         Emissions summary for <strong>{facilityName}</strong>.
+        {isLive && (
+          <span className="live-badge" title="Live updates connected">
+            <span className="live-badge__dot" aria-hidden="true" /> Live
+          </span>
+        )}
       </p>
 
       <form className="filter-bar" onSubmit={handleSubmit}>

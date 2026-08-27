@@ -458,3 +458,79 @@ table {
     grid-template-columns: 70px 1fr 100px;
   }
 }
+
+/* ---------- Asset Scan ---------- */
+
+.scan-toggle {
+  align-self: flex-start;
+  background: var(--color-surface);
+  color: var(--color-primary-dark);
+  border: 1px solid var(--color-primary);
+}
+
+.scan-toggle:hover:not(:disabled) {
+  background: #e8f3ec;
+}
+
+.scan-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.scan-panel__video {
+  width: 100%;
+  max-width: 480px;
+  border-radius: var(--radius);
+  background: #000;
+}
+
+.scan-panel__actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.scan-panel__cancel {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.scan-panel__cancel:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* ---------- Live indicator ---------- */
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-primary-dark);
+}
+
+.live-badge__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

@@ -7,3 +7,8 @@ export const USE_MOCK_API: boolean = import.meta.env.VITE_USE_MOCK_API !== "fals
 
 export const API_BASE_URL: string =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api";
+
+/** WebSocket endpoints (see docs/api-contract.md's WebSocket section) sit at
+ * the root, not under /api — derived from API_BASE_URL rather than a
+ * separate env var so the two never drift apart. */
+export const WS_BASE_URL: string = API_BASE_URL.replace(/^http/, "ws").replace(/\/api\/?$/, "");

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "../api";
+import { AssetScanCapture } from "../components/AssetScanCapture";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
@@ -117,6 +118,13 @@ function ConsumptionForFacility({ facilityId, facilityName }: { facilityId: numb
             This facility has no emission sources yet. Add one on the <Link to="/">Setup</Link> screen.
           </p>
         )}
+        {sourcesStatus === "ready" && sources.length > 0 && (
+          <AssetScanCapture
+            facilityId={facilityId}
+            onMatched={(source) => setEmissionSourceId(source.id)}
+          />
+        )}
+
         {sourcesStatus === "ready" && sources.length > 0 && (
           <form onSubmit={handleSubmit} className="card__col">
             <div className="field">

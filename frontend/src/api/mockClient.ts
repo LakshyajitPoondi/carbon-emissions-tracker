@@ -21,6 +21,7 @@ import type {
 } from "./ApiClient";
 import { ApiError } from "./ApiClient";
 import type {
+  AssetScanResult,
   ConsumptionRecord,
   ConsumptionRecordCreateRequest,
   EmissionCalculation,
@@ -97,6 +98,8 @@ const emissionSources: EmissionSource[] = [
     source_type: "ENERGY",
     source_name: "Grid electricity",
     unit_of_measurement: "kWh",
+    // The only seeded source with a barcode — see scanAsset below for why.
+    barcode_value: "ENSRC-DEMO-001",
     created_at: "2026-08-01T09:10:00Z",
     updated_at: "2026-08-01T09:10:00Z",
   },
@@ -106,6 +109,7 @@ const emissionSources: EmissionSource[] = [
     source_type: "FUEL",
     source_name: "Diesel generator",
     unit_of_measurement: "litre",
+    barcode_value: null,
     created_at: "2026-08-01T09:11:00Z",
     updated_at: "2026-08-01T09:11:00Z",
   },
@@ -115,6 +119,7 @@ const emissionSources: EmissionSource[] = [
     source_type: "RESOURCE",
     source_name: "Portland cement",
     unit_of_measurement: "kg",
+    barcode_value: null,
     created_at: "2026-08-01T09:12:00Z",
     updated_at: "2026-08-01T09:12:00Z",
   },
@@ -386,6 +391,7 @@ export const mockClient: ApiClient = {
       source_type: req.source_type,
       source_name: req.source_name.trim(),
       unit_of_measurement: req.unit_of_measurement.trim(),
+      barcode_value: req.barcode_value?.trim() || null,
       created_at: now,
       updated_at: now,
     };
@@ -396,6 +402,28 @@ export const mockClient: ApiClient = {
   async listEmissionSources(facilityId: number) {
     await delay();
     return emissionSources.filter((s) => s.facility_id === facilityId);
+  },
+
+  async scanAsset(facilityId: number, _image: Blob): Promise<AssetScanResult> {
+    await delay();
+    requireFacility(facilityId);
+    // The mock has no real image-decoding capability (no barcode/QR library
+    // in this project, and adding one just for mock-mode fidelity isn't
+    // worth it — the real decode path is only meaningfully testable against
+    // the real backend anyway). Simulate the common happy path instead:
+    // "scanning" always resolves to whichever seeded source in this
+    // facility has a barcode_value assigned. If none do, simulate the
+    // real "nothing readable" case so the UI's error path is still
+    // exercisable in mock mode.
+    const source = emissionSources.find((s) => s.facility_id === facilityId && s.barcode_value);
+    if (!source || !source.barcode_value) {
+      throw new ApiError("NO_BARCODE_DETECTED", "No readable barcode found in frame", 422);
+    }
+    return {
+      decoded_value: source.barcode_value,
+      bounding_box: { x: 120, y: 84, width: 220, height: 96 },
+      emission_source: source,
+    };
   },
 
   async listEmissionFactors(filters?: EmissionFactorFilters) {

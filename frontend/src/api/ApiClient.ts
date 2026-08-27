@@ -5,6 +5,7 @@
  */
 
 import type {
+  AssetScanResult,
   ConsumptionRecord,
   ConsumptionRecordCreateRequest,
   EmissionFactor,
@@ -66,6 +67,9 @@ export interface ApiClient {
 
   createEmissionSource(req: EmissionSourceCreateRequest): Promise<EmissionSource>;
   listEmissionSources(facilityId: number): Promise<EmissionSource[]>;
+
+  /** image is a captured webcam frame (canvas.toBlob output). */
+  scanAsset(facilityId: number, image: Blob): Promise<AssetScanResult>;
 
   listEmissionFactors(filters?: EmissionFactorFilters): Promise<EmissionFactor[]>;
 

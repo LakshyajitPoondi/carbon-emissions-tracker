@@ -65,6 +65,19 @@ function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 }
 
+/** multipart/form-data POST with the bearer token attached — deliberately no
+ * Content-Type header: the browser sets multipart/form-data with the
+ * correct boundary itself when the body is a FormData instance, and
+ * overriding it manually breaks the boundary. */
+function requestMultipart<T>(path: string, formData: FormData): Promise<T> {
+  const token = getToken();
+  return rawRequest<T>(path, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: formData,
+  });
+}
+
 export const realClient: ApiClient = {
   register: (req) => request("/auth/register", { method: "POST", body: JSON.stringify(req) }),
 
@@ -97,6 +110,12 @@ export const realClient: ApiClient = {
 
   listEmissionSources: (facilityId) =>
     request(`/emission-sources${query({ facility_id: facilityId })}`),
+
+  scanAsset: (facilityId, image) => {
+    const formData = new FormData();
+    formData.append("image", image, "frame.jpg");
+    return requestMultipart(`/facilities/${facilityId}/asset-scan`, formData);
+  },
 
   listEmissionFactors: (filters?: EmissionFactorFilters) =>
     request(`/emission-factors${query({ source_type: filters?.source_type, region: filters?.region })}`),

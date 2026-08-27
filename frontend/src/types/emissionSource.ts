@@ -10,6 +10,7 @@ export interface EmissionSource {
   source_type: SourceType;
   source_name: string;
   unit_of_measurement: string;
+  barcode_value: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -19,4 +20,5 @@ export interface EmissionSourceCreateRequest {
   source_type: SourceType;
   source_name: string;
   unit_of_measurement: string;
+  barcode_value?: string | null;
 }
