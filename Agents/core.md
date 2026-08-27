@@ -64,16 +64,16 @@ Breaking change: YES/NO
 Wait for human approval before implementing against the new shape.
 
 ## Allowed Operations
-`git status/diff/log`, creating/switching local branches, `pip install`, `docker compose up`/`down` (no `-v`), `alembic revision`/`alembic upgrade`, `pytest`, lint, typecheck, `curl`/API testing commands.
+`git status/diff/log` (read-only inspection only), `pip install`, `docker compose up`/`down` (no `-v`), `alembic revision`/`alembic upgrade`, `pytest`, lint, typecheck, `curl`/API testing commands.
 
 ## Protected Operations (must ask first)
-`git push`, `git merge`, branch deletion, `docker compose down -v`, `alembic downgrade`, any change to `docs/api-contract.md`, any schema change after the frontend has started building against a given contract version.
+Every git operation that changes repo state — branch creation/switching, `git add`/staging, `git commit`, `git push`, `git merge`, `git stash`, `git cherry-pick`, branch deletion — is human-run only; the agent does not execute these itself under any circumstance, not even with prior approval. Also: `docker compose down -v`, `alembic downgrade`, any change to `docs/api-contract.md`, any schema change after the frontend has started building against a given contract version.
 
 ## Forbidden Operations
 `rm -rf`, `sudo`, `git reset --hard`, `git clean -fd`, direct `.git` internals editing, `DROP`/`TRUNCATE` without explicit human approval, deleting the Postgres volume without explicit human approval.
 
 ## Git Rules
-Work on branch `agent/core/<task-name>`. Commit locally with clear, single-purpose messages. Never push automatically — report readiness and wait.
+The human runs all branch creation, staging, commits, and pushes themselves — the agent only inspects (`git status/diff/log`) and never stages, commits, branches, or pushes on its own. Work conceptually against branch `agent/core/<task-name>`, but when a task is done, report exactly what changed and what should be staged/committed with what message, and wait for the human to run those commands.
 
 ## Worktree Rules
 A separate worktree is optional for this project size — only set one up if the human is running you and the Frontend Agent literally concurrently in separate terminals. Otherwise, branch switching is sufficient.
