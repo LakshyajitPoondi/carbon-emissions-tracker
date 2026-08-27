@@ -1,14 +1,15 @@
 """Pydantic schemas for the Reports resource.
 
-Matches docs/api-contract.md — Reports section.
-total_emissions_kg_co2e and the facilities breakdown are never stored (the
-`reports` table has no such columns) — they're computed live by
-app/services/reports.py on every generate/get/list call.
+Matches docs/api-contract.md — Reports section. total_emissions_kg_co2e and
+facilities are populated once by the Celery task (app/tasks.py) when a
+report reaches FINAL, and stored on the row from then on — not recomputed
+live on every read. Both are None while PENDING/PROCESSING.
 """
 
 import enum
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -16,6 +17,8 @@ from pydantic import BaseModel
 class ReportStatus(str, enum.Enum):
     """Allowed report statuses (API-level enum, mirrors ReportStatusEnum)."""
     DRAFT = "draft"
+    PENDING = "pending"
+    PROCESSING = "processing"
     FINAL = "final"
 
 
@@ -40,9 +43,9 @@ class ReportSummaryResponse(BaseModel):
     report_period_end: date
     generated_at: datetime
     status: ReportStatus
-    total_emissions_kg_co2e: Decimal
+    total_emissions_kg_co2e: Optional[Decimal] = None
 
 
 class ReportDetailResponse(ReportSummaryResponse):
     """POST /reports/generate and GET /reports/{id} response."""
-    facilities: list[FacilityBreakdown]
+    facilities: Optional[list[FacilityBreakdown]] = None

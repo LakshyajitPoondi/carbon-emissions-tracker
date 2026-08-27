@@ -216,12 +216,27 @@ Response `200`:
 
 ## Reports
 
+Generation is asynchronous (Celery + Redis) — `POST /reports/generate`
+returns immediately with the report in `pending` status; the actual
+aggregation happens in a background worker. Poll `GET /reports/{id}`, or
+connect to the WebSocket channel below to be pushed the finished report
+instead of polling.
+
+`status` is one of `draft` (unused, predates this flow) · `pending` (row
+created, generation not started yet) · `processing` (worker is aggregating)
+· `final` (done — `total_emissions_kg_co2e` and `facilities` are populated).
+`total_emissions_kg_co2e` and `facilities` are `null` until `final` — a
+report's totals are computed exactly once and stored, not recomputed on
+every read, so a `final` report's numbers are a stable snapshot of when it
+was generated.
+
 ### POST /reports/generate
 Request:
 ```json
 { "organization_id": 1, "report_period_start": "2026-08-01", "report_period_end": "2026-08-26" }
 ```
-Response `201`:
+Response `201` — always `pending`, immediately, regardless of how fast the
+worker actually finishes:
 ```json
 {
   "id": 4,
@@ -229,44 +244,48 @@ Response `201`:
   "report_period_start": "2026-08-01",
   "report_period_end": "2026-08-26",
   "generated_at": "2026-08-26T10:10:00Z",
-  "status": "final",
-  "total_emissions_kg_co2e": "12045.30",
-  "facilities": [
-    { "facility_id": 1, "facility_name": "Chennai Plant", "total_emissions_kg_co2e": "12045.30" }
-  ]
+  "status": "pending",
+  "total_emissions_kg_co2e": null,
+  "facilities": null
 }
 ```
+Errors: `404` if `organization_id` doesn't exist.
 
 ### GET /reports/{id}
-Same shape as above. `404` if not found.
+Same shape, whatever the report's current status is. `total_emissions_kg_co2e`/
+`facilities` are `null` for `pending`/`processing`, populated for `final`.
+`404` if not found.
 
 ### GET /reports?organization_id={id}
-Response `200`: array of report summaries (without the nested `facilities` breakdown — that's only on the detail view).
+Response `200`: array of report summaries (without the nested `facilities`
+breakdown — that's only on the detail view; `total_emissions_kg_co2e` is
+still `null` for non-`final` reports in the list too).
 
 ---
 
 ## WebSocket
 
-Live dashboard updates — a client connects once per facility it's viewing
-and is pushed a message whenever a new consumption record is created for
-that facility, instead of polling.
+Two channels, both push-only (clients aren't expected to send anything
+after connecting) and both under the same `/ws` prefix — not under `/api`
+(matches `/health`'s pattern of sitting outside the versioned REST
+namespace). Both take `token` as a query param — the same JWT every other
+endpoint takes as `Authorization: Bearer`, but a browser `WebSocket`
+handshake can't carry custom headers the way `fetch` can.
 
-### GET /ws/facilities/{facility_id}?token={jwt}
-
-Not under `/api` (matches `/health`'s pattern of sitting outside the
-versioned REST namespace). `token` is the same JWT every other endpoint
-takes as `Authorization: Bearer`, passed as a query param instead — a
-browser `WebSocket` handshake can't carry custom headers the way `fetch`
-can.
-
-**Auth/rejection**: the connection is validated *before* being accepted —
-an unauthenticated or invalid-facility connection is never silently
-accepted and then dropped. Close codes:
+**Auth/rejection** (both channels): the connection is validated *before*
+being accepted — an unauthenticated or not-found connection is never
+silently accepted and then dropped. Close codes:
 - `1008` (Policy Violation — the standard RFC 6455 code closest to "missing
   or invalid credentials") if `token` is missing, malformed, or doesn't
   resolve to a user.
-- `4004` (private-use range, mirrors HTTP `404`) if `facility_id` doesn't
-  exist.
+- `4004` (private-use range, mirrors HTTP `404`) if the resource (facility
+  or organization) doesn't exist.
+
+### GET /ws/facilities/{facility_id}?token={jwt}
+
+A client connects once per facility it's viewing and is pushed a message
+whenever a new consumption record is created for that facility, instead of
+polling.
 
 **Message sent on `POST /consumption-records` success**, to every client
 connected to that record's `facility_id`:
@@ -300,8 +319,49 @@ looking at. Sending the raw record instead lets the frontend decide: refetch
 the summary outright, or bump a locally-held total only if this record's
 `recorded_at` falls inside the period currently being viewed.
 
-Clients aren't expected to send anything after connecting — this is a
-server-push-only channel.
+### GET /ws/organizations/{organization_id}?token={jwt}
+
+A client connects once per organization it's viewing reports for, and is
+pushed a message when an async report generation task finishes — so the
+Reports screen can know a report is ready without polling `GET
+/reports/{id}`.
+
+Note this is a genuinely different process than the facility channel: report
+generation runs in the `celery-worker` container, a separate process from
+the one holding the WebSocket connection open, so the finished-report
+message can't be delivered by a direct in-process call the way the
+consumption-record broadcast is. It's relayed through Redis pub/sub — the
+worker publishes, the web process re-broadcasts to its own connected
+clients. Not observable from the API surface; noted here only so it's clear
+this channel depends on Redis being reachable from both containers, not
+just Celery's queue.
+
+**Message sent when a report reaches `final`**, to every client connected to
+that report's `organization_id`:
+```json
+{
+  "type": "report_generated",
+  "report": {
+    "id": 4,
+    "organization_id": 1,
+    "report_period_start": "2026-08-01",
+    "report_period_end": "2026-08-26",
+    "generated_at": "2026-08-26T10:10:00Z",
+    "status": "final",
+    "total_emissions_kg_co2e": "12045.30",
+    "facilities": [
+      { "facility_id": 1, "facility_name": "Chennai Plant", "total_emissions_kg_co2e": "12045.30" }
+    ]
+  }
+}
+```
+Same shape as the `GET /reports/{id}` response, sent in full — unlike the
+consumption-record broadcast, there's no "which period is currently
+selected" ambiguity here (a report's period is fixed at generation time), so
+there's no reason to hold anything back or make the frontend re-fetch.
+
+Clients aren't expected to send anything after connecting on either
+channel — both are server-push-only.
 
 ---
 

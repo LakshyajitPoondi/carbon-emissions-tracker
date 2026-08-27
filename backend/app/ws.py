@@ -1,10 +1,16 @@
-"""In-memory WebSocket connection manager for live facility dashboard updates.
+"""In-memory WebSocket connection manager for live dashboard/report updates.
 
-A plain dict of facility_id -> set of active connections, scoped to a single
-app instance/process — correct for this project's single-container
-deployment. This would need a shared pub/sub layer (e.g. Redis) to fan
-broadcasts out across multiple backend instances/replicas; that's out of
-scope here.
+A plain dict of channel -> set of active connections, scoped to a single
+app instance/process. Channels are plain strings (e.g. "facility:5",
+"organization:5") so unrelated broadcast scopes can share one manager
+without key collisions.
+
+Broadcasts triggered from within a FastAPI request (e.g.
+consumption_records.py) can call manager.broadcast(...) directly — the
+connections and the code doing the broadcasting are in the same process.
+Broadcasts triggered from the Celery worker (a separate process) cannot
+reach this manager directly; see app/pubsub.py for the Redis bridge that
+makes that case work too.
 """
 
 from fastapi import WebSocket
@@ -12,21 +18,21 @@ from fastapi import WebSocket
 
 class ConnectionManager:
     def __init__(self) -> None:
-        self._connections: dict[int, set[WebSocket]] = {}
+        self._connections: dict[str, set[WebSocket]] = {}
 
-    def connect(self, facility_id: int, websocket: WebSocket) -> None:
-        self._connections.setdefault(facility_id, set()).add(websocket)
+    def connect(self, channel: str, websocket: WebSocket) -> None:
+        self._connections.setdefault(channel, set()).add(websocket)
 
-    def disconnect(self, facility_id: int, websocket: WebSocket) -> None:
-        connections = self._connections.get(facility_id)
+    def disconnect(self, channel: str, websocket: WebSocket) -> None:
+        connections = self._connections.get(channel)
         if connections is None:
             return
         connections.discard(websocket)
         if not connections:
-            self._connections.pop(facility_id, None)
+            self._connections.pop(channel, None)
 
-    async def broadcast(self, facility_id: int, message: dict) -> None:
-        connections = self._connections.get(facility_id)
+    async def broadcast(self, channel: str, message: dict) -> None:
+        connections = self._connections.get(channel)
         if not connections:
             return
         # A send can fail if a client dropped without a clean close frame
@@ -39,7 +45,7 @@ class ConnectionManager:
             except Exception:
                 stale.add(websocket)
         for websocket in stale:
-            self.disconnect(facility_id, websocket)
+            self.disconnect(channel, websocket)
 
 
 # Single process-wide instance — every module that needs to connect/broadcast

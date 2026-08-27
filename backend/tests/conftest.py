@@ -17,13 +17,28 @@ import os
 # itself unsets this for its own scope.
 os.environ.setdefault("SKIP_MODEL_LOAD", "true")
 
+# Same reasoning as SKIP_MODEL_LOAD: most tests have nothing to do with
+# reports/WebSockets and shouldn't pay for (or require) a live Redis
+# connection just to spin up a TestClient. The one test that verifies the
+# Celery-worker-to-WebSocket bridge unsets this for its own scope.
+os.environ.setdefault("SKIP_PUBSUB", "true")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.celery_app import celery_app
 from app.database import get_db
 from app.main import app
+
+# Celery's eager mode: .delay()/.apply_async() run the task synchronously,
+# in-process, instead of going through Redis to a real worker — exactly
+# what the test suite needs (see docs/asset-scan-plan.md-style reasoning:
+# tests shouldn't require a real running worker). task_eager_propagates
+# makes an exception raised inside the task actually surface in the test
+# instead of being silently swallowed.
+celery_app.conf.update(task_always_eager=True, task_eager_propagates=True)
 
 # When running inside the Docker container (docker compose exec), the DB host
 # is the service name "postgres".  DATABASE_URL is already set correctly in
@@ -52,6 +67,21 @@ def db_session():
         session.close()
         transaction.rollback()
         connection.close()
+
+
+@pytest.fixture(autouse=True)
+def _celery_task_shares_test_transaction(db_session, monkeypatch):
+    """app/tasks.py's Celery task opens its own SessionLocal() — correct
+    and necessary for how it really runs in production (a separate worker
+    process), but in eager-mode tests that would mean the task's session
+    can't see the dispatching test's own data: each test's db_session lives
+    inside a transaction that's rolled back at the end, never actually
+    committed to the shared database, so a session on a different
+    connection wouldn't see it. Bind a sessionmaker to the exact same
+    connection as db_session so eager task execution sees the same
+    in-progress transaction as the test that dispatched it."""
+    test_sessionmaker = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
+    monkeypatch.setattr("app.tasks.SessionLocal", test_sessionmaker)
 
 
 @pytest.fixture()

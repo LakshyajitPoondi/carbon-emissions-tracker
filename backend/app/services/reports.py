@@ -1,9 +1,11 @@
-"""Emissions aggregation for the dashboard summary and reports endpoints.
+"""Emissions aggregation for the dashboard summary and report generation.
 
-Reports don't persist their totals (the `reports` table has no such column —
-see alembic/versions/0001_initial_create_schema.py), so both the summary
-endpoint and every report read recompute totals live from
-consumption_records/emission_calculations for the requested period.
+The dashboard's emissions-summary endpoint always recomputes live (it's
+inherently a "right now" view). Reports used to work the same way, but
+since async generation (see app/tasks.py) reports now compute their totals
+exactly once — via organization_report_totals, called from the Celery task
+— and store the result on the `reports` row; GET/list read the stored
+values instead of recomputing.
 """
 
 from datetime import date, datetime, time, timezone

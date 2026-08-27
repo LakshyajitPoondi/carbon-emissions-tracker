@@ -105,7 +105,7 @@ async def create_consumption_record(
     # reasoning written out for the frontend side.
     response = ConsumptionRecordResponse.model_validate(record)
     await manager.broadcast(
-        body.facility_id,
+        f"facility:{body.facility_id}",
         {
             "type": "consumption_record_created",
             "consumption_record": response.model_dump(mode="json"),

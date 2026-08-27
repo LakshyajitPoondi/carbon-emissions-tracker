@@ -1,10 +1,17 @@
-"""WebSocket endpoint for live dashboard updates.
+"""WebSocket endpoints for live dashboard/report updates.
 
 GET /ws/facilities/{facility_id} — a client connects once per facility it's
 viewing, and receives a message whenever a new consumption record is created
-for that facility (see consumption_records.py's broadcast call). Registered
-without the /api prefix, matching the existing /health endpoint's pattern of
-sitting outside the versioned REST namespace.
+for that facility (see consumption_records.py's broadcast call).
+
+GET /ws/organizations/{organization_id} — a client connects once per
+organization it's viewing reports for, and receives a message when an async
+report generation task finishes (see app/tasks.py, via the Redis bridge in
+app/pubsub.py — the Celery worker that finishes the report runs in a
+different process than this one).
+
+Both registered without the /api prefix, matching the existing /health
+endpoint's pattern of sitting outside the versioned REST namespace.
 
 Auth uses the same JWT as every other endpoint, but passed as a query param
 (?token=...) rather than an Authorization header — browser WebSocket
@@ -19,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_user_from_token
 from app.database import get_db
 from app.models.facility import Facility
+from app.models.organization import Organization
 from app.ws import manager
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
@@ -27,8 +35,26 @@ router = APIRouter(prefix="/ws", tags=["WebSocket"])
 # for missing/invalid auth; there's no more specific standard code for it.
 CLOSE_UNAUTHORIZED = 1008
 # Private-use range (4000-4999, reserved by RFC 6455 for applications) —
-# mirrors HTTP 404 for "the facility you asked for doesn't exist."
-CLOSE_FACILITY_NOT_FOUND = 4004
+# mirrors HTTP 404 for "the resource you asked for doesn't exist."
+CLOSE_NOT_FOUND = 4004
+
+
+async def _run_channel(websocket: WebSocket, channel: str) -> None:
+    """Shared accept/listen/cleanup loop for any channel, once auth and the
+    resource lookup have already passed."""
+    await websocket.accept()
+    manager.connect(channel, websocket)
+    try:
+        while True:
+            # Clients aren't expected to send anything meaningful — this
+            # just blocks until the client disconnects, which is how ASGI
+            # WebSocket disconnect detection works (a receive() that raises
+            # WebSocketDisconnect).
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(channel, websocket)
 
 
 @router.websocket("/facilities/{facility_id}")
@@ -47,19 +73,27 @@ async def facility_updates(
 
     facility = db.get(Facility, facility_id)
     if facility is None:
-        await websocket.close(code=CLOSE_FACILITY_NOT_FOUND)
+        await websocket.close(code=CLOSE_NOT_FOUND)
         return
 
-    await websocket.accept()
-    manager.connect(facility_id, websocket)
-    try:
-        while True:
-            # Clients aren't expected to send anything meaningful — this
-            # just blocks until the client disconnects, which is how ASGI
-            # WebSocket disconnect detection works (a receive() that raises
-            # WebSocketDisconnect).
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        manager.disconnect(facility_id, websocket)
+    await _run_channel(websocket, f"facility:{facility_id}")
+
+
+@router.websocket("/organizations/{organization_id}")
+async def organization_updates(
+    websocket: WebSocket,
+    organization_id: int,
+    token: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    user = get_user_from_token(token, db) if token else None
+    if user is None:
+        await websocket.close(code=CLOSE_UNAUTHORIZED)
+        return
+
+    organization = db.get(Organization, organization_id)
+    if organization is None:
+        await websocket.close(code=CLOSE_NOT_FOUND)
+        return
+
+    await _run_channel(websocket, f"organization:{organization_id}")

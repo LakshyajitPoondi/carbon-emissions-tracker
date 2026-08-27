@@ -1,7 +1,9 @@
 """Report endpoints.
 
-POST /reports/generate           — generate a report for an organization/period
-GET  /reports/{id}                — retrieve a report by ID (recomputed live)
+POST /reports/generate           — create a report (PENDING) and dispatch
+                                    async generation; does not block
+GET  /reports/{id}                — retrieve a report by ID, whatever its
+                                    current status is
 GET  /reports?organization_id={id} — list report summaries for an organization
 """
 
@@ -19,7 +21,7 @@ from app.schemas.report import (
     ReportGenerateRequest,
     ReportSummaryResponse,
 )
-from app.services.reports import organization_report_totals
+from app.tasks import generate_report_task
 
 router = APIRouter(
     prefix="/reports",
@@ -28,10 +30,11 @@ router = APIRouter(
 )
 
 
-def _detail_response(report: Report, db: Session) -> ReportDetailResponse:
-    total, breakdown = organization_report_totals(
-        db, report.organization_id, report.report_period_start, report.report_period_end
-    )
+def _detail_response(report: Report) -> ReportDetailResponse:
+    """Reads whatever's currently stored on the row — None for
+    total_emissions_kg_co2e/facilities until the Celery task reaches FINAL.
+    Never recomputes live; see app/tasks.py for the one place totals are
+    actually calculated."""
     return ReportDetailResponse(
         id=report.id,
         organization_id=report.organization_id,
@@ -39,8 +42,8 @@ def _detail_response(report: Report, db: Session) -> ReportDetailResponse:
         report_period_end=report.report_period_end,
         generated_at=report.generated_at,
         status=report.status,
-        total_emissions_kg_co2e=total,
-        facilities=breakdown,
+        total_emissions_kg_co2e=report.total_emissions_kg_co2e,
+        facilities=report.facilities_breakdown,
     )
 
 
@@ -67,12 +70,24 @@ def generate_report(
         organization_id=body.organization_id,
         report_period_start=body.report_period_start,
         report_period_end=body.report_period_end,
-        status=ReportStatusEnum.FINAL,
+        status=ReportStatusEnum.PENDING,
     )
     db.add(report)
     db.commit()
     db.refresh(report)
-    return _detail_response(report, db)
+
+    generate_report_task.delay(report.id)
+
+    # Deliberately built from `report` as committed above, not re-fetched
+    # after dispatch. In production (a real async worker) the task won't
+    # have run yet by the time we get here, so the response is PENDING
+    # either way — but in Celery's eager-execution test mode, .delay() runs
+    # the task synchronously in-process before returning, and a re-fetch
+    # here would show FINAL. That would make this endpoint's contract
+    # depend on which execution mode happens to be active, which is exactly
+    # the kind of thing that passes in tests and lies in production. The
+    # response must always reflect "just created," full stop.
+    return _detail_response(report)
 
 
 @router.get(
@@ -92,7 +107,7 @@ def get_report(
                 f"Report {report_id} does not exist",
             ),
         )
-    return _detail_response(report, db)
+    return _detail_response(report)
 
 
 @router.get(
@@ -109,20 +124,15 @@ def list_reports(
         .order_by(Report.generated_at.desc())
         .all()
     )
-    summaries = []
-    for report in reports:
-        total, _breakdown = organization_report_totals(
-            db, report.organization_id, report.report_period_start, report.report_period_end
+    return [
+        ReportSummaryResponse(
+            id=report.id,
+            organization_id=report.organization_id,
+            report_period_start=report.report_period_start,
+            report_period_end=report.report_period_end,
+            generated_at=report.generated_at,
+            status=report.status,
+            total_emissions_kg_co2e=report.total_emissions_kg_co2e,
         )
-        summaries.append(
-            ReportSummaryResponse(
-                id=report.id,
-                organization_id=report.organization_id,
-                report_period_start=report.report_period_start,
-                report_period_end=report.report_period_end,
-                generated_at=report.generated_at,
-                status=report.status,
-                total_emissions_kg_co2e=total,
-            )
-        )
-    return summaries
+        for report in reports
+    ]

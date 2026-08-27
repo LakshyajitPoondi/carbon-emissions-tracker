@@ -1,5 +1,6 @@
 """Carbon Emissions Tracking Platform — FastAPI application entry point."""
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -9,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.ml import load_model
+from app.pubsub import run_subscriber
 from app.routers import (
     asset_scan,
     auth,
@@ -34,7 +36,21 @@ from app.schemas.error import error_response
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.yolo_model = load_model()
+
+    # Redis pub/sub subscriber bridging cross-process broadcasts (from the
+    # Celery worker) onto this process's real WebSocket connections — see
+    # app/pubsub.py. Skippable for the bulk of the test suite the same way
+    # SKIP_MODEL_LOAD skips the YOLO model: most tests have nothing to do
+    # with reports/WebSockets and shouldn't pay for a live Redis connection
+    # on every TestClient startup, or hang if Redis isn't up yet.
+    subscriber_task = None
+    if os.getenv("SKIP_PUBSUB") != "true":
+        subscriber_task = asyncio.create_task(run_subscriber())
+
     yield
+
+    if subscriber_task is not None:
+        subscriber_task.cancel()
 
 
 app = FastAPI(
