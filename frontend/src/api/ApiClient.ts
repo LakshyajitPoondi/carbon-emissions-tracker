@@ -13,12 +13,16 @@ import type {
   EmissionSourceCreateRequest,
   Facility,
   FacilityCreateRequest,
+  LoginRequest,
   Organization,
   OrganizationCreateRequest,
+  RegisterRequest,
   Report,
   ReportGenerateRequest,
   ReportSummary,
   SourceType,
+  TokenResponse,
+  User,
 } from "../types";
 
 /** Thrown by both clients on any non-2xx response, carrying the contract's error.code. */
@@ -51,6 +55,9 @@ export interface EmissionsSummaryFilters {
 }
 
 export interface ApiClient {
+  register(req: RegisterRequest): Promise<User>;
+  login(req: LoginRequest): Promise<TokenResponse>;
+
   createOrganization(req: OrganizationCreateRequest): Promise<Organization>;
   getOrganization(id: number): Promise<Organization>;
 

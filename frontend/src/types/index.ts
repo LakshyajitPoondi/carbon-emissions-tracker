@@ -6,3 +6,4 @@ export * from "./consumptionRecord";
 export * from "./emissionsSummary";
 export * from "./report";
 export * from "./error";
+export * from "./user";

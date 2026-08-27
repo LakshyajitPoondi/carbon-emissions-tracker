@@ -7,8 +7,13 @@ import type {
   EmissionsSummaryFilters,
 } from "./ApiClient";
 import { ApiError } from "./ApiClient";
+import { clearToken, getToken } from "./authToken";
 import { API_BASE_URL } from "./config";
 import type { ApiErrorBody } from "../types";
+
+/** Fired whenever a request comes back 401 — AuthContext listens for this to
+ * clear its state and send the user back to /login, from anywhere in the app. */
+export const UNAUTHORIZED_EVENT = "auth:unauthorized";
 
 function query(params: Record<string, string | number | undefined>): string {
   const usp = new URLSearchParams();
@@ -19,13 +24,12 @@ function query(params: Record<string, string | number | undefined>): string {
   return s ? `?${s}` : "";
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Lowest-level fetch wrapper: no assumptions about request Content-Type, so
+ * both JSON requests and the form-encoded login request can share it. */
+async function rawRequest<T>(path: string, init: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
-    });
+    res = await fetch(`${API_BASE_URL}${path}`, init);
   } catch {
     throw new ApiError("NETWORK_ERROR", "Could not reach the server. Is the backend running?", 0);
   }
@@ -34,6 +38,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const errorBody = body as ApiErrorBody | null;
+    if (res.status === 401) {
+      clearToken();
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
     throw new ApiError(
       errorBody?.error?.code ?? "UNKNOWN_ERROR",
       errorBody?.error?.message ?? `Request failed with status ${res.status}`,
@@ -44,7 +52,35 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** JSON request with the bearer token attached, for every non-auth endpoint. */
+function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  return rawRequest<T>(path, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  });
+}
+
 export const realClient: ApiClient = {
+  register: (req) => request("/auth/register", { method: "POST", body: JSON.stringify(req) }),
+
+  login: (req) => {
+    // POST /auth/token is OAuth2's password flow — form-encoded, not JSON,
+    // and unauthenticated, so it goes through rawRequest directly.
+    const params = new URLSearchParams();
+    params.set("username", req.email);
+    params.set("password", req.password);
+    return rawRequest("/auth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+  },
+
   createOrganization: (req) =>
     request("/organizations", { method: "POST", body: JSON.stringify(req) }),
 

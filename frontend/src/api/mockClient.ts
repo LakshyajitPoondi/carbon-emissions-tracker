@@ -30,12 +30,15 @@ import type {
   EmissionSourceCreateRequest,
   Facility,
   FacilityCreateRequest,
+  LoginRequest,
   Organization,
   OrganizationCreateRequest,
+  RegisterRequest,
   Report,
   ReportGenerateRequest,
   ReportSummary,
   SourceType,
+  User,
 } from "../types";
 import { SOURCE_TYPES } from "../types";
 
@@ -159,6 +162,18 @@ const emissionFactors: EmissionFactor[] = [
 
 const consumptionRecords: ConsumptionRecord[] = [];
 const reports: Report[] = [];
+
+// Preseeded so the login screen is usable standalone in mock mode.
+interface MockUser {
+  id: number;
+  email: string;
+  password: string;
+  created_at: string;
+}
+const users: MockUser[] = [
+  { id: 1, email: "demo@example.com", password: "demopassword123", created_at: "2026-08-01T08:00:00Z" },
+];
+let nextUserId = 2;
 
 function seedConsumptionRecord(
   emissionSourceId: number,
@@ -285,6 +300,31 @@ seedConsumptionRecord(3, "500.0000", "2026-08-18T08:00:00Z");
 // ---------------------------------------------------------------------------
 
 export const mockClient: ApiClient = {
+  async register(req: RegisterRequest): Promise<User> {
+    await delay();
+    if (!notEmpty(req.email) || !notEmpty(req.password)) {
+      throw new ApiError("VALIDATION_ERROR", "email and password must not be empty", 422);
+    }
+    if (req.password.length < 8) {
+      throw new ApiError("VALIDATION_ERROR", "password must be at least 8 characters", 422);
+    }
+    if (users.some((u) => u.email === req.email)) {
+      throw new ApiError("EMAIL_ALREADY_REGISTERED", `Email ${req.email} is already registered`, 422);
+    }
+    const user: MockUser = { id: nextUserId++, email: req.email, password: req.password, created_at: nowIso() };
+    users.push(user);
+    return { id: user.id, email: user.email, created_at: user.created_at };
+  },
+
+  async login(req: LoginRequest) {
+    await delay();
+    const user = users.find((u) => u.email === req.email && u.password === req.password);
+    if (!user) {
+      throw new ApiError("INVALID_CREDENTIALS", "Incorrect email or password", 401);
+    }
+    return { access_token: `mock-token-${user.id}-${Date.now()}`, token_type: "bearer" };
+  },
+
   async createOrganization(req: OrganizationCreateRequest) {
     await delay();
     if (!notEmpty(req.name) || !notEmpty(req.industry_type)) {

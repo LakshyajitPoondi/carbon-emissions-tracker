@@ -1,7 +1,10 @@
 """Carbon Emissions Tracking Platform — FastAPI application entry point."""
 
+import os
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.routers import (
@@ -19,6 +22,27 @@ app = FastAPI(
     title="Carbon Emissions Tracking Platform",
     description="Backend API for tracking organizational carbon emissions.",
     version="0.1.0",
+)
+
+# ---------------------------------------------------------------------------
+# CORS — the frontend dev server runs on a different origin (Vite on
+# localhost:5173) than the API (localhost:8000), so the browser enforces
+# CORS on every request. Without this, all fetches fail at the preflight
+# stage before the request ever reaches a route.
+# ---------------------------------------------------------------------------
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ---------------------------------------------------------------------------

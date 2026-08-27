@@ -139,6 +139,29 @@ table {
   color: var(--color-text-muted);
 }
 
+.app-header__auth {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.app-header__email {
+  color: var(--color-text-muted);
+}
+
+.app-header__logout {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  padding: 0.35em 0.8em;
+}
+
+.app-header__logout:hover:not(:disabled) {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
 .app-nav {
   display: flex;
   gap: 1.25rem;
@@ -176,6 +199,23 @@ table {
 .page__intro {
   color: var(--color-text-muted);
   margin: -0.6rem 0 0;
+}
+
+.page--narrow {
+  max-width: 420px;
+}
+
+.link-button {
+  background: transparent;
+  color: var(--color-primary-dark);
+  padding: 0;
+  text-decoration: underline;
+  align-self: center;
+}
+
+.link-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--color-primary);
 }
 
 /* ---------- Cards & forms ---------- */

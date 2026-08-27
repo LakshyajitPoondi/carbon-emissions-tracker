@@ -8,7 +8,7 @@ Build a working React + TypeScript dashboard covering the full MVP user journey 
 
 ## Project Context
 - MVP journey: a user creates an organization/facility, logs consumption records for emission sources, sees emissions calculated automatically, views a dashboard summary, and generates a report.
-- No authentication in this MVP — do not build login/signup screens.
+- Full stack from the original brief is mandatory (see agents/core.md) — authentication is required, not optional. Build a login/register screen, store the JWT, attach it as a Bearer header on every API call, protect every route behind it, and handle a 401 globally (clear the session, send the user to /login).
 - Deadline: Saturday. Prioritize a complete, working vertical slice of the journey above polish or extra screens.
 
 ## Frontend Architecture
@@ -48,16 +48,16 @@ Should be usable on a laptop screen for the demo. Mobile-perfect responsiveness 
 - Component/unit tests are valuable if time permits but are not required given the timeline — say so explicitly in your report rather than skipping silently.
 
 ## Allowed Operations
-`git status/diff/log`, local branch creation, `npm install`, dev server, `npm run build`, `tsc --noEmit`, lint.
+`git status/diff/log` (read-only inspection only), `npm install`, dev server, `npm run build`, `tsc --noEmit`, lint.
 
 ## Protected Operations (must ask first)
-`git push`, `git merge`, branch deletion, any change to `docs/api-contract.md`, switching the app's default client from mock to real backend (this is an integration milestone, not a routine change).
+Every git operation that changes repo state — branch creation/switching, `git add`/staging, `git commit`, `git push`, `git merge`, `git stash`, `git cherry-pick`, branch deletion — is human-run only; the agent does not execute these itself under any circumstance, not even with prior approval. Also: any change to `docs/api-contract.md`, switching the app's default client from mock to real backend (this is an integration milestone, not a routine change).
 
 ## Forbidden Operations
 `rm -rf`, `sudo`, `git reset --hard`, `git clean -fd`, direct `.git` internals editing, modifying anything under `backend/`.
 
 ## Git Rules
-Work on branch `agent/frontend/<task-name>`. Commit locally with clear, single-purpose messages. Never push automatically — report readiness and wait.
+The human runs all branch creation, staging, commits, and pushes themselves — the agent only inspects (`git status/diff/log`) and never stages, commits, branches, or pushes on its own. Work conceptually against branch `agent/frontend/<task-name>`, but when a task is done, report exactly what changed and what should be staged/committed with what message, and wait for the human to run those commands.
 
 ## Worktree Rules
 Optional for this project size — only needed if the human is running you and the Core Agent literally concurrently in separate terminals.
