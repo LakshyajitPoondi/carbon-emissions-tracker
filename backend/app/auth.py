@@ -54,16 +54,25 @@ def _decode_subject(token: str) -> Optional[str]:
     return payload.get("sub")
 
 
+def get_user_from_token(token: str, db: Session) -> Optional[User]:
+    """Like get_current_user, but callable directly with an explicit token
+    string rather than via the OAuth2PasswordBearer/Authorization-header
+    dependency flow. Used by the WebSocket endpoint, whose token arrives as
+    a query param — a browser WebSocket handshake can't carry custom headers
+    the way an HTTP request can."""
+    email = _decode_subject(token)
+    if email is None:
+        return None
+    return db.query(User).filter(User.email == email).first()
+
+
 def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     if token is None:
         raise CREDENTIALS_EXCEPTION
-    email = _decode_subject(token)
-    if email is None:
-        raise CREDENTIALS_EXCEPTION
-    user = db.query(User).filter(User.email == email).first()
+    user = get_user_from_token(token, db)
     if user is None:
         raise CREDENTIALS_EXCEPTION
     return user

@@ -245,6 +245,66 @@ Response `200`: array of report summaries (without the nested `facilities` break
 
 ---
 
+## WebSocket
+
+Live dashboard updates — a client connects once per facility it's viewing
+and is pushed a message whenever a new consumption record is created for
+that facility, instead of polling.
+
+### GET /ws/facilities/{facility_id}?token={jwt}
+
+Not under `/api` (matches `/health`'s pattern of sitting outside the
+versioned REST namespace). `token` is the same JWT every other endpoint
+takes as `Authorization: Bearer`, passed as a query param instead — a
+browser `WebSocket` handshake can't carry custom headers the way `fetch`
+can.
+
+**Auth/rejection**: the connection is validated *before* being accepted —
+an unauthenticated or invalid-facility connection is never silently
+accepted and then dropped. Close codes:
+- `1008` (Policy Violation — the standard RFC 6455 code closest to "missing
+  or invalid credentials") if `token` is missing, malformed, or doesn't
+  resolve to a user.
+- `4004` (private-use range, mirrors HTTP `404`) if `facility_id` doesn't
+  exist.
+
+**Message sent on `POST /consumption-records` success**, to every client
+connected to that record's `facility_id`:
+```json
+{
+  "type": "consumption_record_created",
+  "consumption_record": {
+    "id": 10,
+    "emission_source_id": 3,
+    "facility_id": 1,
+    "quantity_consumed": "1250.500000",
+    "unit": "kWh",
+    "recorded_at": "2026-08-20T00:00:00Z",
+    "created_at": "2026-08-26T10:05:00Z",
+    "calculation": {
+      "id": 7,
+      "emission_factor_id": 1,
+      "calculated_emissions_kg_co2e": "885.679730",
+      "calculation_date": "2026-08-26"
+    }
+  }
+}
+```
+Same shape as a `POST /consumption-records` response — not a pre-aggregated
+`by_source_type` total. The server has no way to know which date range each
+connected dashboard currently has selected (`GET
+/facilities/{id}/emissions-summary?start_date=&end_date=` is client-driven),
+so it can't correctly compute "the new total" on a client's behalf without
+risking sending a number that doesn't match what that client is actually
+looking at. Sending the raw record instead lets the frontend decide: refetch
+the summary outright, or bump a locally-held total only if this record's
+`recorded_at` falls inside the period currently being viewed.
+
+Clients aren't expected to send anything after connecting — this is a
+server-push-only channel.
+
+---
+
 ## Standard Error Shape
 
 All errors follow:

@@ -16,6 +16,7 @@ from app.routers import (
     facilities,
     organizations,
     reports,
+    websocket,
 )
 from app.schemas.error import error_response
 
@@ -99,6 +100,7 @@ app.include_router(emission_sources.router, prefix="/api")
 app.include_router(emission_factors.router, prefix="/api")
 app.include_router(consumption_records.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
+app.include_router(websocket.router)  # no /api prefix — matches /health
 
 
 # ---------------------------------------------------------------------------
