@@ -74,14 +74,61 @@ Response `200`: array of facility objects.
 ### POST /emission-sources
 Request:
 ```json
-{ "facility_id": 1, "source_type": "ENERGY", "source_name": "Grid electricity", "unit_of_measurement": "kWh" }
+{ "facility_id": 1, "source_type": "ENERGY", "source_name": "Grid electricity", "unit_of_measurement": "kWh", "barcode_value": "ENSRC-00042" }
 ```
-`source_type` must be one of: `ENERGY`, `FUEL`, `RESOURCE`.
-Response `201`: object + `id`, timestamps.
-Errors: `404` if `facility_id` missing. `422` if `source_type` invalid.
+`source_type` must be one of: `ENERGY`, `FUEL`, `RESOURCE`. `barcode_value` is optional — omit or send `null` if the source has no barcode label yet.
+Response `201`: object + `id`, timestamps, `barcode_value` (`null` if not set).
+Errors: `404` if `facility_id` missing. `422` if `source_type` invalid, or `barcode_value` (when provided) already belongs to another source in the same facility (`BARCODE_ALREADY_ASSIGNED`).
 
 ### GET /emission-sources?facility_id={id}
-Response `200`: array of emission source objects.
+Response `200`: array of emission source objects (each including `barcode_value`).
+
+---
+
+## Asset Scan
+
+Merges the brief's barcode scanner + OpenCV + YOLO/Detectron2 requirements
+into one feature: point a webcam at an emission source's barcode label, get
+back the matching `emission_source`. See `docs/asset-scan-plan.md` for the
+full design rationale, including why a pretrained YOLOv8n (no custom
+training) is used only as an "is anything in frame" presence gate — it has
+no "barcode" class, so pyzbar/zbar does the actual decode and localization.
+
+### POST /facilities/{facility_id}/asset-scan
+Request: `multipart/form-data` with a single `image` file field (JPEG or
+PNG, ≤5MB) — a frame captured from the browser's webcam via
+`canvas.toBlob()`.
+
+Response `200` — barcode decoded and matched:
+```json
+{
+  "decoded_value": "ENSRC-00042",
+  "bounding_box": { "x": 118, "y": 76, "width": 240, "height": 118 },
+  "emission_source": {
+    "id": 7,
+    "facility_id": 1,
+    "source_type": "ENERGY",
+    "source_name": "Grid electricity",
+    "unit_of_measurement": "kWh",
+    "barcode_value": "ENSRC-00042",
+    "created_at": "2026-08-01T09:10:00Z",
+    "updated_at": "2026-08-01T09:10:00Z"
+  }
+}
+```
+`bounding_box` is pixel coordinates in the submitted image, from the decoded
+barcode's own symbol polygon. No `confidence` field — the decode is a
+deterministic pass/fail, not a probabilistic score.
+
+Errors:
+- `404` if `facility_id` doesn't exist.
+- `422 VALIDATION_ERROR` if `image` is missing, unreadable, or over 5MB.
+- `422 NO_BARCODE_DETECTED` if no readable barcode was found in the frame at
+  all (message varies slightly depending on whether the presence gate found
+  *something* in frame that just wasn't a readable barcode, vs. nothing at
+  all — the `code` is the same either way, only `message` differs).
+- `422 BARCODE_NOT_MATCHED` if a barcode decoded successfully but no
+  emission source in this facility carries that `barcode_value`.
 
 ---
 
@@ -195,6 +242,66 @@ Same shape as above. `404` if not found.
 
 ### GET /reports?organization_id={id}
 Response `200`: array of report summaries (without the nested `facilities` breakdown — that's only on the detail view).
+
+---
+
+## WebSocket
+
+Live dashboard updates — a client connects once per facility it's viewing
+and is pushed a message whenever a new consumption record is created for
+that facility, instead of polling.
+
+### GET /ws/facilities/{facility_id}?token={jwt}
+
+Not under `/api` (matches `/health`'s pattern of sitting outside the
+versioned REST namespace). `token` is the same JWT every other endpoint
+takes as `Authorization: Bearer`, passed as a query param instead — a
+browser `WebSocket` handshake can't carry custom headers the way `fetch`
+can.
+
+**Auth/rejection**: the connection is validated *before* being accepted —
+an unauthenticated or invalid-facility connection is never silently
+accepted and then dropped. Close codes:
+- `1008` (Policy Violation — the standard RFC 6455 code closest to "missing
+  or invalid credentials") if `token` is missing, malformed, or doesn't
+  resolve to a user.
+- `4004` (private-use range, mirrors HTTP `404`) if `facility_id` doesn't
+  exist.
+
+**Message sent on `POST /consumption-records` success**, to every client
+connected to that record's `facility_id`:
+```json
+{
+  "type": "consumption_record_created",
+  "consumption_record": {
+    "id": 10,
+    "emission_source_id": 3,
+    "facility_id": 1,
+    "quantity_consumed": "1250.500000",
+    "unit": "kWh",
+    "recorded_at": "2026-08-20T00:00:00Z",
+    "created_at": "2026-08-26T10:05:00Z",
+    "calculation": {
+      "id": 7,
+      "emission_factor_id": 1,
+      "calculated_emissions_kg_co2e": "885.679730",
+      "calculation_date": "2026-08-26"
+    }
+  }
+}
+```
+Same shape as a `POST /consumption-records` response — not a pre-aggregated
+`by_source_type` total. The server has no way to know which date range each
+connected dashboard currently has selected (`GET
+/facilities/{id}/emissions-summary?start_date=&end_date=` is client-driven),
+so it can't correctly compute "the new total" on a client's behalf without
+risking sending a number that doesn't match what that client is actually
+looking at. Sending the raw record instead lets the frontend decide: refetch
+the summary outright, or bump a locally-held total only if this record's
+`recorded_at` falls inside the period currently being viewed.
+
+Clients aren't expected to send anything after connecting — this is a
+server-push-only channel.
 
 ---
 

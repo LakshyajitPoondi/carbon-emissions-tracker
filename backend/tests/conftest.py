@@ -7,6 +7,16 @@ so tests never leave leftover data.
 
 import os
 
+# Must be set before app.main is imported: the lifespan reads this at
+# startup to decide whether to load the real YOLOv8n model. Without it,
+# every test's TestClient(app) would load the real model from disk (via
+# app.ml.load_model), adding real load latency to all 35+ existing tests
+# that have nothing to do with Asset Scan. Tests that specifically exercise
+# the asset-scan endpoint override app.ml.get_yolo_model with a fake instead
+# (see test_asset_scan.py); the one test that verifies startup-loading
+# itself unsets this for its own scope.
+os.environ.setdefault("SKIP_MODEL_LOAD", "true")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

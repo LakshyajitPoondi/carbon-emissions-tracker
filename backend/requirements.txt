@@ -12,3 +12,20 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.9
+
+# Asset Scan feature — CPU-only torch (avoid pulling a multi-GB CUDA wheel;
+# this runs on CPU only, see docs/asset-scan-plan.md point 6).
+#
+# No explicit opencv-python-headless pin here: ultralytics hard-depends on
+# plain opencv-python regardless, and pip installs both distributions side
+# by side since they're different package names — whichever installs last
+# wins the shared cv2/ namespace, which is fragile and order-dependent.
+# Simpler and more reliable to let ultralytics' own opencv-python win and
+# give it the system libraries it needs (see Dockerfile) rather than fight
+# a losing battle for headless. Confirmed via an actual `docker compose
+# build` + import check, not assumed — see docs/asset-scan-plan.md addendum.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1
+pyzbar==0.1.9
+ultralytics==8.3.40
+qrcode==8.0

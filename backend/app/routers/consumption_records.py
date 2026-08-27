@@ -24,6 +24,7 @@ from app.services.emissions import (
     calculate_emissions,
     find_applicable_emission_factor,
 )
+from app.ws import manager
 
 router = APIRouter(
     prefix="/consumption-records",
@@ -37,7 +38,7 @@ router = APIRouter(
     response_model=ConsumptionRecordResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_consumption_record(
+async def create_consumption_record(
     body: ConsumptionRecordCreate,
     db: Session = Depends(get_db),
 ):
@@ -92,6 +93,25 @@ def create_consumption_record(
     db.add(calculation)
     db.commit()
     db.refresh(record)
+
+    # Broadcast the full record (not a pre-aggregated summary total) to
+    # every WebSocket client watching this facility. The server has no way
+    # to know which date range each connected dashboard currently has
+    # selected, so it can't correctly compute "the new total" on their
+    # behalf — sending the raw record lets the frontend decide whether/how
+    # to fold it in (refetch the summary, or bump a locally-held total only
+    # if this record's recorded_at falls within the currently-viewed
+    # period). See docs/api-contract.md's WebSocket section for the same
+    # reasoning written out for the frontend side.
+    response = ConsumptionRecordResponse.model_validate(record)
+    await manager.broadcast(
+        body.facility_id,
+        {
+            "type": "consumption_record_created",
+            "consumption_record": response.model_dump(mode="json"),
+        },
+    )
+
     return record
 
 

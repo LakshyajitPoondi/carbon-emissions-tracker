@@ -42,11 +42,31 @@ def create_emission_source(
             ),
         )
 
+    if body.barcode_value is not None:
+        existing = (
+            db.query(EmissionSource)
+            .filter(
+                EmissionSource.facility_id == body.facility_id,
+                EmissionSource.barcode_value == body.barcode_value,
+            )
+            .first()
+        )
+        if existing is not None:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content=error_response(
+                    "BARCODE_ALREADY_ASSIGNED",
+                    f"Barcode '{body.barcode_value}' is already assigned to another "
+                    f"emission source in facility {body.facility_id}",
+                ),
+            )
+
     source = EmissionSource(
         facility_id=body.facility_id,
         source_type=SourceTypeEnum(body.source_type.value),
         source_name=body.source_name,
         unit_of_measurement=body.unit_of_measurement,
+        barcode_value=body.barcode_value,
     )
     db.add(source)
     db.commit()

@@ -29,6 +29,7 @@ class EmissionSource(Base):
     )
     source_name: Mapped[str] = mapped_column(String(255), nullable=False)
     unit_of_measurement: Mapped[str] = mapped_column(String(50), nullable=False)
+    barcode_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -49,6 +50,12 @@ class EmissionSource(Base):
         Index("ix_emission_sources_facility_id", "facility_id"),
         Index("ix_emission_sources_source_type", "source_type"),
         Index("ix_emission_sources_source_name", "source_name"),
+        Index(
+            "ix_emission_sources_facility_id_barcode_value",
+            "facility_id",
+            "barcode_value",
+            unique=True,
+        ),
     )
 
     def __repr__(self) -> str:

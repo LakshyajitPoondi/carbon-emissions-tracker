@@ -14,6 +14,12 @@ venv/
 # Docker
 postgres_data/
 
+# Baked model weights — fetched by the Dockerfile at build time; also kept
+# here on the host because docker-compose's bind mount (./backend:/app)
+# shadows whatever the image baked in at /app/models. See
+# docs/asset-scan-plan.md point 8 for why both copies are needed.
+backend/models/
+
 # IDE
 .vscode/
 .idea/
