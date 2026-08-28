@@ -1,9 +1,8 @@
-# carbon-emissions-tracker
-Track energy, fuel, and resource consumption to calculate carbon emissions and generate sustainability reports. FastAPI + PostgreSQL backend, React dashboard.
 # Carbon Emissions Tracking Platform
 
 Track energy, fuel, and resource consumption across facilities to calculate
-carbon emissions and generate sustainability reports.
+carbon emissions and generate sustainability reports. FastAPI + PostgreSQL
+backend, React + TypeScript dashboard.
 
 ## Stack
 
@@ -154,18 +153,23 @@ without showing anything GraphQL-specific. Nested queries, the schema
 browser, and the batched DataLoader resolvers are all far more visible in
 GraphiQL than they would be behind a chart that looks identical either way.
 
-One wrinkle worth knowing before demoing it: `/graphql` is protected by the
-same JWT auth as every other endpoint, and that includes the `GET` request
-that serves the GraphiQL page itself. Navigating a browser straight to
-`http://localhost:8000/graphql` therefore returns `401` — an address bar
-cannot send an `Authorization` header. Two ways round it:
+Open `http://localhost:8000/graphql` (or `https://localhost:8443/graphql`
+over TLS) directly in a browser — the console loads without a token. Get a
+token from `POST /api/auth/token`, then paste it into GraphiQL's built-in
+**Headers** pane at the bottom of the editor:
 
-**Use the console** — inject the header with a browser extension such as
-ModHeader, then load the page:
+```json
+{ "Authorization": "Bearer <your token>" }
+```
 
-```
-Authorization: Bearer <token from POST /api/auth/token>
-```
+and run queries normally. No browser extension required.
+
+Auth is enforced on the *query*, not on the page. `GET /graphql` serves only
+the static console HTML; every query is a `POST` carrying the same bearer
+token as any REST endpoint, and an unauthenticated one is rejected with
+`401` exactly like the rest of the API. Query execution over GET is disabled
+outright, so a URL such as `/graphql?query={...}` is refused with `400`
+rather than executed — the public GET route can never return data.
 
 **Or query the endpoint directly**, no console needed:
 

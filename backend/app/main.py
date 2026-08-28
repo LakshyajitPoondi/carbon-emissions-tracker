@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_current_user_for_graphql
 from app.graphql.schema import graphql_router
 from app.middleware.audit import AuditLogMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -172,14 +172,20 @@ app.include_router(websocket.router)  # no /api prefix — matches /health
 
 # GraphQL — read-only query layer alongside REST (REST stays the source of
 # truth for all writes; there is no Mutation type). Also no /api prefix,
-# same reasoning as /health and /ws. Gated by the exact same
-# get_current_user dependency every REST router uses, applied here at
-# include_router time since GraphQLRouter is a plain APIRouter — a request
-# without a valid bearer token never reaches GraphQL execution at all.
+# same reasoning as /health and /ws.
+#
+# Auth is applied at include_router time, since GraphQLRouter is a plain
+# APIRouter, but via get_current_user_for_graphql rather than
+# get_current_user directly: POST (every real query) is authenticated
+# exactly like any REST endpoint, while GET is exempt so a browser can
+# actually load the GraphiQL console — it cannot send an Authorization
+# header from the address bar. Paired with allow_queries_via_get=False in
+# app/graphql/schema.py, which is what keeps that exemption from becoming
+# unauthenticated read access; see both docstrings.
 app.include_router(
     graphql_router,
     prefix="/graphql",
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(get_current_user_for_graphql)],
 )
 
 

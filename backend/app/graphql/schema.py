@@ -56,4 +56,16 @@ async def get_graphql_context(db: Session = Depends(get_db)) -> dict:
     }
 
 
-graphql_router = GraphQLRouter(schema, context_getter=get_graphql_context)
+# allow_queries_via_get=False is load-bearing, not tidiness. Strawberry
+# defaults it to True, which lets GET /graphql?query={...} execute a real
+# query. Auth for this router is gated on POST only (see
+# app.auth.get_current_user_for_graphql) so that a browser can load the
+# GraphiQL page without an Authorization header it has no way to send —
+# and if GET could also execute queries, that exemption would hand out
+# unauthenticated read access to the whole schema. With this off, GET can
+# do exactly one thing: serve the static GraphiQL HTML shell.
+graphql_router = GraphQLRouter(
+    schema,
+    context_getter=get_graphql_context,
+    allow_queries_via_get=False,
+)

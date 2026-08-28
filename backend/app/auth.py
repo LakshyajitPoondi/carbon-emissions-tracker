@@ -83,3 +83,31 @@ def get_current_user(
     # dependency actually validated the token — it never re-decodes one.
     request.state.audit_user_id = user.id
     return user
+
+
+def get_current_user_for_graphql(
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Like get_current_user, but lets an unauthenticated GET through.
+
+    GraphiQL is served by a plain GET /graphql, and a browser navigating to
+    a URL cannot attach an Authorization header — so gating GET on a bearer
+    token makes the console unreachable: you need the page to supply the
+    token, and the token to load the page. Exempting GET breaks that
+    deadlock, and GET can then serve exactly one thing, the static GraphiQL
+    HTML shell.
+
+    That exemption is only safe because the router is built with
+    allow_queries_via_get=False (see app/graphql/schema.py). Strawberry
+    otherwise executes queries from GET query strings, which would turn
+    this into unauthenticated read access to the entire schema. The two
+    settings have to move together; neither is correct alone.
+
+    Every actual query is a POST, and POST is authenticated exactly as
+    before.
+    """
+    if request.method.upper() == "GET":
+        return None
+    return get_current_user(request=request, token=token, db=db)

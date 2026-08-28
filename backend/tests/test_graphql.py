@@ -1,13 +1,15 @@
-"""Tests for the read-only GraphQL layer (POST /graphql).
+"""Tests for the read-only GraphQL layer at /graphql.
 
 Covers: the organization(id) query returns nested data matching what the
-equivalent REST calls return, auth is enforced the same as every REST
-endpoint, a nonexistent organization surfaces a GraphQL-style error instead
-of crashing, and the emissionsSummary field batches into one query per
-distinct period instead of one query per facility (the N+1 concern from
-docs/api-contract.md's GraphQL section).
+equivalent REST calls return, auth is enforced on POST the same as every
+REST endpoint while GET serves the GraphiQL console unauthenticated (and
+can never execute a query), a nonexistent organization surfaces a
+GraphQL-style error instead of crashing, and the emissionsSummary field
+batches into one query per distinct period instead of one query per
+facility (the N+1 concern from docs/api-contract.md's GraphQL section).
 """
 
+import pytest
 from sqlalchemy import event
 
 ORGANIZATION_QUERY = """
@@ -297,6 +299,83 @@ class TestGraphQLAuth:
         resp = client.post("/graphql", json={"query": "{ organization(id: 1) { id } }"})
         assert resp.status_code == 401
         assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
+
+class TestGraphiQLConsoleAccess:
+    """GET serves the console; POST is what needs a token.
+
+    The pairing matters: a browser navigating to /graphql cannot send an
+    Authorization header, so gating GET made the console unreachable. GET is
+    exempt from auth *because* the router is built with
+    allow_queries_via_get=False — without that, exempting GET would hand out
+    unauthenticated read access to the whole schema via a query string. The
+    last two tests here are what keep those two settings honest.
+    """
+
+    def test_graphiql_page_loads_without_a_token(self, client):
+        del client.headers["Authorization"]
+        resp = client.get("/graphql")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "graphiql" in resp.text.lower()
+
+    def test_post_still_requires_a_token(self, client):
+        """The console being public must not make the data public."""
+        del client.headers["Authorization"]
+        resp = client.post("/graphql", json={"query": "{ __typename }"})
+
+        assert resp.status_code == 401
+        assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
+    @pytest.mark.parametrize("accept", ["text/html", "application/json"])
+    def test_unauthenticated_get_with_a_query_string_does_not_return_data(
+        self, client, accept
+    ):
+        """The exemption's blast radius, pinned. An unauthenticated GET
+        carrying a query must never execute it, whatever it asks for back."""
+        del client.headers["Authorization"]
+        resp = client.get("/graphql?query={__typename}", headers={"Accept": accept})
+
+        assert resp.status_code == 400
+        assert "not allowed" in resp.text.lower()
+        # Nothing that could be a GraphQL result came back.
+        assert "__typename" not in resp.text
+        assert "Query" not in resp.text
+        with pytest.raises(ValueError):
+            resp.json()
+
+    def test_authenticated_get_with_a_query_string_is_refused_too(self, client):
+        """Not merely an auth check: GET cannot execute queries at all, so a
+        valid token doesn't unlock the GET path either. That is what stops
+        query execution from ever depending on the auth exemption."""
+        resp = client.get("/graphql?query={__typename}")
+
+        assert resp.status_code == 400
+        assert "not allowed" in resp.text.lower()
+
+    def test_a_real_query_still_works_over_post(self, client):
+        """The console is only useful if the flow it documents works: load
+        the page unauthenticated, then POST with the token pasted into
+        GraphiQL's Headers pane."""
+        org = client.post(
+            "/api/organizations",
+            json={"name": "Console Corp", "industry_type": "manufacturing"},
+        ).json()
+
+        resp = client.post(
+            "/graphql",
+            json={
+                "query": "query Q($id: Int!) { organization(id: $id) { name industryType } }",
+                "variables": {"id": org["id"]},
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["organization"] == {
+            "name": "Console Corp",
+            "industryType": "manufacturing",
+        }
 
 
 class TestEmissionsSummaryNPlusOne:

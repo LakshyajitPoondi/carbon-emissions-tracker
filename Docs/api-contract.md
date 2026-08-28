@@ -533,6 +533,39 @@ gets the same `401` + Standard Error Shape response as any REST endpoint,
 not a GraphQL-shaped error. Like `/health` and `/ws`, this sits outside the
 `/api` prefix.
 
+### GET /graphql — the GraphiQL console
+
+`GET /graphql` serves the built-in GraphiQL console as static HTML and is
+**deliberately not authenticated**. A browser navigating to a URL cannot
+attach an `Authorization` header, so requiring a token to fetch the page
+would make the console unreachable — you would need the page in order to
+supply the token, and the token in order to load the page.
+
+Nothing is exposed by this. Query execution over GET is disabled
+(`allow_queries_via_get=False`), so the GET route can do exactly one thing:
+return the console's HTML. A URL carrying a query is refused:
+
+```
+GET /graphql?query={__typename}    ->  400  "queries are not allowed when using GET"
+```
+
+That holds whether or not a token is supplied, and regardless of the
+`Accept` header — GET never reaches a resolver. Every real query is a
+`POST`, authenticated exactly as described above.
+
+**Using the console:** open `http://localhost:8000/graphql` (or
+`https://localhost:8443/graphql` over TLS), obtain a token from
+`POST /api/auth/token`, and paste it into GraphiQL's **Headers** pane:
+
+```json
+{ "Authorization": "Bearer <your token>" }
+```
+
+Queries then run normally. This console is the intended way to demonstrate
+the GraphQL layer; there is deliberately no dedicated frontend screen for
+it, since REST is the only write path and the React dashboard already
+covers every read the UI needs.
+
 Standard GraphQL-over-HTTP request/response: POST a JSON body
 `{ "query": "...", "variables": {...} }`, get back `{ "data": ..., "errors": [...] }`
 (`errors` omitted when there are none). A resolver-level failure (e.g. a
