@@ -505,6 +505,34 @@ table {
   color: var(--color-text);
 }
 
+/* ---------- Status badges (reports) ---------- */
+
+.status-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.status-badge--pending,
+.status-badge--processing {
+  background: #fdf3e0;
+  border-color: #eecf98;
+  color: var(--color-fuel);
+}
+
+.status-badge--final {
+  background: #e8f3ec;
+  border-color: var(--color-primary);
+  color: var(--color-primary-dark);
+}
+
 /* ---------- Live indicator ---------- */
 
 .live-badge {
