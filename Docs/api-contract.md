@@ -132,6 +132,85 @@ Errors:
 
 ---
 
+## Labels (ZPL)
+
+The counterpart to Asset Scan: that feature *reads* a barcode off a label,
+this one *generates* the label to stick on the equipment in the first place.
+
+There is no physical Zebra printer in this project, so the deliverable is
+valid printer-ready **ZPL II text** the user can copy or download and send
+to a real printer later — not an actual print job. An optional rendered PNG
+preview is included so the label can be seen without one.
+
+The label is 4" x 2" at 8 dots/mm (203 dpi) — 812 x 406 dots — and carries
+the source name, its facility name, `source_type / unit_of_measurement`,
+and `barcode_value` encoded as **Code 128** (`^BC`) with the
+human-readable interpretation line printed beneath the bars. Nothing is
+stored: the label is regenerated on each request, so it always reflects the
+source's current name and barcode.
+
+### GET /emission-sources/{id}/label
+
+Query parameters:
+
+| Parameter | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `preview` | bool | `true` | Render a PNG preview. `false` skips the outbound call to the external renderer and returns ZPL text only. |
+
+Response `200`:
+```json
+{
+  "emission_source_id": 7,
+  "barcode_value": "ENSRC-00042",
+  "zpl_code": "^XA\n^CI28\n^PW812\n^LL406\n^LH0,0\n^FO30,28^A0N,40,40^FH_^FDGrid electricity^FS\n^FO30,84^A0N,28,28^FH_^FDChennai Plant^FS\n^FO30,122^A0N,28,28^FH_^FDENERGY / kWh^FS\n^BY3,3,100\n^FO30,170^BCN,100,Y,N,N^FH_^FDENSRC-00042^FS\n^XZ\n",
+  "label_width_inches": 4.0,
+  "label_height_inches": 2.0,
+  "print_density_dpmm": 8,
+  "preview_png_base64": "iVBORw0KGgoAAAANSUhEUg...",
+  "preview_note": null
+}
+```
+
+`preview_png_base64` is a base64-encoded PNG, ready to drop into an
+`<img src="data:image/png;base64,...">`. It is `null` whenever no preview
+was produced, and `preview_note` then explains why — `zpl_code` is
+identical either way.
+
+**Preview rendering.** The PNG comes from [Labelary](https://labelary.com),
+a free public ZPL-to-image API. It is optional decoration: if the service
+is unreachable, times out, or returns an error, the endpoint still returns
+`200` with the full ZPL and a `preview_note` saying the preview was
+unavailable — an optional cosmetic feature never fails the request. Two
+things worth knowing: using it sends the label's contents (source name,
+facility name, barcode) to a third party, and it adds one outbound HTTP
+call to the request. Either reason is grounds to pass `preview=false`, or
+to set `LABEL_PREVIEW_ENABLED=false` to turn it off service-wide.
+
+**Text handling.** `^` and `~` are ZPL control characters; any occurrence
+in a source or facility name is emitted as a `^FH_` hex escape so label
+text can never be interpreted as a command. Text longer than the label is
+trimmed with a trailing `...` rather than silently clipped at the label
+edge.
+
+Errors:
+
+| Status | Code | When |
+| --- | --- | --- |
+| `404` | `NOT_FOUND` | No emission source with that id. |
+| `422` | `BARCODE_NOT_ASSIGNED` | The source has no `barcode_value`. A label with an empty barcode looks scannable and then fails at the scanner, so it is refused: assign a barcode to the source first. |
+| `401` | `UNAUTHORIZED` | Missing or invalid bearer token, as everywhere. |
+
+```json
+{
+  "error": {
+    "code": "BARCODE_NOT_ASSIGNED",
+    "message": "Emission source 7 has no barcode_value, so no barcode can be encoded on its label. Assign a barcode to the source first, then request the label again."
+  }
+}
+```
+
+---
+
 ## Emission Factors
 
 Seeded via a migration/seed script, not created through the API in the MVP.

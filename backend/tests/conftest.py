@@ -23,6 +23,14 @@ os.environ.setdefault("SKIP_MODEL_LOAD", "true")
 # Celery-worker-to-WebSocket bridge unsets this for its own scope.
 os.environ.setdefault("SKIP_PUBSUB", "true")
 
+# Same family of switch, for the ZPL label preview (app/services/labels.py),
+# which normally POSTs the generated ZPL to Labelary to get a PNG back. The
+# test suite must never make real network calls, and a default-on external
+# call is the kind of thing a future test hits by accident: off by default
+# here, so a test that wants the render path has to say so explicitly and
+# mock httpx (see test_labels.py).
+os.environ.setdefault("LABEL_PREVIEW_ENABLED", "false")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
