@@ -4,11 +4,13 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.auth import get_current_user
+from app.graphql.schema import graphql_router
 from app.ml import load_model
 from app.pubsub import run_subscriber
 from app.routers import (
@@ -140,6 +142,18 @@ app.include_router(emission_factors.router, prefix="/api")
 app.include_router(consumption_records.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(websocket.router)  # no /api prefix — matches /health
+
+# GraphQL — read-only query layer alongside REST (REST stays the source of
+# truth for all writes; there is no Mutation type). Also no /api prefix,
+# same reasoning as /health and /ws. Gated by the exact same
+# get_current_user dependency every REST router uses, applied here at
+# include_router time since GraphQLRouter is a plain APIRouter — a request
+# without a valid bearer token never reaches GraphQL execution at all.
+app.include_router(
+    graphql_router,
+    prefix="/graphql",
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # ---------------------------------------------------------------------------

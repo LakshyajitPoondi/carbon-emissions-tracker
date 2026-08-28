@@ -71,6 +71,55 @@ def facility_total_emissions(db: Session, facility_id: int, start: date, end: da
     return sum(by_type.values(), ZERO)
 
 
+def organization_emissions_by_source_type(
+    db: Session, facility_ids: list[int], start: date, end: date
+) -> dict[int, dict[str, Decimal]]:
+    """Like facility_emissions_by_source_type, but for many facilities in a
+    single grouped query instead of one query per facility.
+
+    Added for the GraphQL organization(id) query's nested
+    Facility.emissionsSummary field (see app/graphql/): resolving that field
+    naively for every facility under an organization would fire one query
+    per facility. This groups by (facility_id, source_type) in one query
+    instead, then applies the exact same quantization and "default missing
+    source types to zero" rules as facility_emissions_by_source_type above,
+    reusing its constants (SUMMARY_QUANT, ZERO) so the numbers match REST's
+    per-facility endpoint exactly — only the query shape differs, not the
+    arithmetic.
+    """
+    if not facility_ids:
+        return {}
+    start_dt, end_dt = _period_bounds(start, end)
+    rows = (
+        db.query(
+            ConsumptionRecord.facility_id,
+            EmissionSource.source_type,
+            func.sum(EmissionCalculation.calculated_emissions_kg_co2e),
+        )
+        .join(ConsumptionRecord, ConsumptionRecord.emission_source_id == EmissionSource.id)
+        .join(
+            EmissionCalculation,
+            EmissionCalculation.consumption_record_id == ConsumptionRecord.id,
+        )
+        .filter(
+            ConsumptionRecord.facility_id.in_(facility_ids),
+            ConsumptionRecord.recorded_at >= start_dt,
+            ConsumptionRecord.recorded_at <= end_dt,
+        )
+        .group_by(ConsumptionRecord.facility_id, EmissionSource.source_type)
+        .all()
+    )
+
+    result: dict[int, dict[str, Decimal]] = {facility_id: {} for facility_id in facility_ids}
+    for facility_id, source_type, total in rows:
+        result[facility_id][source_type.value] = Decimal(total).quantize(SUMMARY_QUANT, rounding=ROUND_HALF_UP)
+    for facility_id in facility_ids:
+        by_type = result[facility_id]
+        for source_type in SourceTypeEnum:
+            by_type.setdefault(source_type.value, ZERO)
+    return result
+
+
 def organization_report_totals(
     db: Session, organization_id: int, start: date, end: date
 ) -> tuple[Decimal, list[dict]]:

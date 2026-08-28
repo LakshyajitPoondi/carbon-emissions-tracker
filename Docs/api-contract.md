@@ -365,6 +365,149 @@ channel — both are server-push-only.
 
 ---
 
+## GraphQL
+
+A read-only query layer alongside the REST API above — REST remains the
+source of truth for every create/update; there is no GraphQL mutation type
+at all. This exists for clients that want one round trip for an
+organization's facilities and their emissions summaries together, instead
+of `GET /organizations/{id}` + `GET /facilities?organization_id=` +
+one `GET /facilities/{id}/emissions-summary` per facility.
+
+### POST /graphql
+
+Same auth as every REST endpoint: `Authorization: Bearer <token>` is
+required, enforced before the query executes — a missing or invalid token
+gets the same `401` + Standard Error Shape response as any REST endpoint,
+not a GraphQL-shaped error. Like `/health` and `/ws`, this sits outside the
+`/api` prefix.
+
+Standard GraphQL-over-HTTP request/response: POST a JSON body
+`{ "query": "...", "variables": {...} }`, get back `{ "data": ..., "errors": [...] }`
+(`errors` omitted when there are none). A resolver-level failure (e.g. a
+nonexistent organization, below) is carried in `errors`, not the HTTP status
+— the transport-level response is still `200`.
+
+Field names are camelCase (`industryType`, `emissionsSummary`,
+`totalEmissionsKgCo2e`), following standard GraphQL convention, even though
+the equivalent REST fields are snake_case.
+
+### Schema
+
+```graphql
+type Query {
+  organization(id: Int!): Organization
+}
+
+type Organization {
+  id: Int!
+  name: String!
+  industryType: String!
+  createdAt: DateTime!
+  facilities: [Facility!]!
+}
+
+type Facility {
+  id: Int!
+  organizationId: Int!
+  name: String!
+  location: String!
+  facilityType: String!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  emissionsSummary(startDate: Date!, endDate: Date!): EmissionsSummary!
+  emissionSources: [EmissionSource!]!
+}
+
+type EmissionsSummary {
+  facilityId: Int!
+  periodStart: Date!
+  periodEnd: Date!
+  totalEmissionsKgCo2e: Decimal!
+  bySourceType: JSON!   # e.g. { "ENERGY": "8000.10", "FUEL": "3500.20", "RESOURCE": "545.00" }
+}
+
+type EmissionSource {
+  id: Int!
+  facilityId: Int!
+  sourceType: SourceType!   # enum: ENERGY | FUEL | RESOURCE
+  sourceName: String!
+  unitOfMeasurement: String!
+  barcodeValue: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+```
+
+`Decimal` serializes as a string, same convention as REST's decimal fields
+(`"12045.30"`, not a raw JSON number) — precision matters here, so it's
+never passed through a float. `emissionsSummary` computes the same way
+`GET /facilities/{id}/emissions-summary` does and returns identical
+numbers for the same facility/period; `emissionSources` returns the same
+rows as `GET /emission-sources?facility_id={id}`.
+
+### Example
+
+Request:
+```json
+{
+  "query": "query Q($orgId: Int!, $start: Date!, $end: Date!) { organization(id: $orgId) { id name industryType facilities { id name emissionsSummary(startDate: $start, endDate: $end) { totalEmissionsKgCo2e bySourceType } } } }",
+  "variables": { "orgId": 1, "start": "2026-08-01", "end": "2026-08-26" }
+}
+```
+
+Response `200`:
+```json
+{
+  "data": {
+    "organization": {
+      "id": 1,
+      "name": "Acme Manufacturing",
+      "industryType": "manufacturing",
+      "facilities": [
+        {
+          "id": 1,
+          "name": "Chennai Plant",
+          "emissionsSummary": {
+            "totalEmissionsKgCo2e": "12045.30",
+            "bySourceType": { "ENERGY": "8000.10", "FUEL": "3500.20", "RESOURCE": "545.00" }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Nonexistent organization — `data.organization` is `null`, the reason is in
+`errors`, not an HTTP `404`:
+```json
+{
+  "data": { "organization": null },
+  "errors": [
+    {
+      "message": "Organization 999 does not exist",
+      "path": ["organization"],
+      "extensions": { "code": "NOT_FOUND" }
+    }
+  ]
+}
+```
+
+### N+1 note
+
+Naively resolving `emissionsSummary` (or `emissionSources`) once per
+facility under one `organization(id)` query would fire one query per
+facility for each field (20 facilities → 20 queries, per field). Both
+fields are batched per query execution instead — `emissionsSummary` calls
+are grouped by `(startDate, endDate)`, the normal case where every facility
+in the request shares the same period, into one grouped SQL query per
+distinct period; `emissionSources` calls are batched into a single
+`facility_id IN (...)` query. Either way, the common case costs exactly one
+query per field regardless of facility count, not one per facility.
+
+---
+
 ## Standard Error Shape
 
 All errors follow:

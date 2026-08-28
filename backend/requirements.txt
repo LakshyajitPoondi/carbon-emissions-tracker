@@ -33,3 +33,6 @@ qrcode==8.0
 # Async report generation
 celery==5.4.0
 redis==5.1.0
+
+# GraphQL read-only query layer (strawberry.fastapi.GraphQLRouter)
+strawberry-graphql==0.324.0
