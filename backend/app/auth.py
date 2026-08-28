@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -67,6 +67,7 @@ def get_user_from_token(token: str, db: Session) -> Optional[User]:
 
 
 def get_current_user(
+    request: Request,
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -75,4 +76,10 @@ def get_current_user(
     user = get_user_from_token(token, db)
     if user is None:
         raise CREDENTIALS_EXCEPTION
+
+    # Hand the resolved identity to the audit middleware, which runs
+    # outside the dependency system and so can't depend on this itself.
+    # Stashing it here means the middleware records a user only when this
+    # dependency actually validated the token — it never re-decodes one.
+    request.state.audit_user_id = user.id
     return user

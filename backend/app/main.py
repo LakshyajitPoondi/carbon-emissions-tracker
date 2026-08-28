@@ -11,10 +11,12 @@ from fastapi.responses import JSONResponse
 
 from app.auth import get_current_user
 from app.graphql.schema import graphql_router
+from app.middleware.audit import AuditLogMiddleware
 from app.ml import load_model
 from app.pubsub import run_subscriber
 from app.routers import (
     asset_scan,
+    audit_logs,
     auth,
     consumption_records,
     emission_factors,
@@ -84,6 +86,19 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
+# Audit logging — one audit_logs row per POST/PUT/PATCH/DELETE, written
+# from a background task after the response is sent so no API call pays for
+# it. See app/middleware/audit.py for the full rationale (why middleware
+# rather than per-endpoint calls, and how it stays off the request path).
+#
+# add_middleware inserts at the front of the stack, so this ends up
+# wrapping CORSMiddleware. Harmless: preflight OPTIONS requests, the only
+# thing CORS answers on its own, are not an audited method.
+# ---------------------------------------------------------------------------
+
+app.add_middleware(AuditLogMiddleware)
+
+# ---------------------------------------------------------------------------
 # Custom validation-error handler
 # Transforms FastAPI's default 422 shape into the contract's standard error
 # shape: {"error": {"code": "VALIDATION_ERROR", "message": "..."}}
@@ -141,6 +156,7 @@ app.include_router(emission_sources.router, prefix="/api")
 app.include_router(emission_factors.router, prefix="/api")
 app.include_router(consumption_records.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
+app.include_router(audit_logs.router, prefix="/api")
 app.include_router(websocket.router)  # no /api prefix — matches /health
 
 # GraphQL — read-only query layer alongside REST (REST stays the source of

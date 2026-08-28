@@ -84,6 +84,23 @@ def _celery_task_shares_test_transaction(db_session, monkeypatch):
     monkeypatch.setattr("app.tasks.SessionLocal", test_sessionmaker)
 
 
+@pytest.fixture(autouse=True)
+def _audit_middleware_shares_test_transaction(db_session, monkeypatch):
+    """Same problem, same fix, for app/middleware/audit.py's background
+    write. It deliberately opens its own SessionLocal() — an audit row must
+    survive the rollback of the request it audits — but left alone in tests
+    that means every audited request COMMITS a real row to the shared dev
+    database, so the suite would both leak rows and be unable to see its
+    own (the test's data lives in an uncommitted transaction on a different
+    connection). Binding to db_session's connection puts the audit write
+    inside the same transaction the test rolls back.
+
+    Autouse rather than opt-in: any test that POSTs anything now produces
+    audit rows, so every test needs this, not just the audit ones."""
+    test_sessionmaker = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
+    monkeypatch.setattr("app.middleware.audit.SessionLocal", test_sessionmaker)
+
+
 @pytest.fixture()
 def client(db_session):
     """FastAPI TestClient with the DB dependency overridden to use the

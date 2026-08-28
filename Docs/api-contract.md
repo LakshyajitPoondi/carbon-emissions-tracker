@@ -508,6 +508,86 @@ query per field regardless of facility count, not one per facility.
 
 ---
 
+## Audit Logs
+
+Every mutating request (`POST`/`PUT`/`PATCH`/`DELETE`) writes one
+`audit_logs` row recording who did it, what kind of resource it touched,
+which endpoint, and the status code the request ended with. This is done by
+a single middleware (`app/middleware/audit.py`), not by per-endpoint calls,
+so a newly added write endpoint is audited automatically rather than only
+if someone remembers to wire it up.
+
+**What is audited**
+- All `POST`/`PUT`/`PATCH`/`DELETE` requests, *except* `POST /auth/register`
+  and `POST /auth/token` — logging in is not a data mutation of the kind
+  this trail exists to record.
+- Failed writes too, with their real status code. A `401`, `404`, or `422`
+  is recorded exactly like a `201`; "who tried what and was refused" is the
+  half of an audit trail that matters most.
+
+**What is not audited**
+- Every `GET` (including `GET /audit-logs` itself), the WebSocket
+  endpoints, and GraphQL — which is read-only and has no mutations.
+
+**Field derivation**
+
+| Field | Source |
+| --- | --- |
+| `user_id` | The authenticated user, taken from the JWT the existing auth dependency already validated. `null` when no user was resolved — e.g. a request rejected with `401`. |
+| `action` | `POST` → `CREATE`, `PUT`/`PATCH` → `UPDATE`, `DELETE` → `DELETE`. |
+| `resource_type` | Singular snake_case name derived from the path: `/api/organizations` → `organization`, `/api/emission-sources` → `emission_source`, `/api/facilities/1/asset-scan` → `asset_scan`, `/api/reports/generate` → `report` (the trailing verb names the action, not the resource). |
+| `resource_id` | The last numeric segment in the path, or `null` if there is none. |
+| `endpoint` | The request path, without the query string. |
+| `status_code` | The status the response was sent with. |
+| `timestamp` | Server time (UTC) at which the row was written. |
+
+**Known limitation — `resource_id` on creates.** It is extracted from the
+URL path, so a `POST` to a collection (`POST /organizations`) records
+`null`: the new row's id does not exist yet when the request arrives, and
+the middleware deliberately does not read response bodies. For a nested
+path (`POST /facilities/1/asset-scan`) the recorded id is the parent's — the
+`1` — since that is the only id the request itself carries.
+
+**Performance.** The audit write is a background task attached to the
+response, so it runs after the response has been sent and adds no latency
+to the API call, and it is run in a threadpool so the synchronous database
+write never blocks the event loop. A failure to write an audit row is
+swallowed and logged; it can never fail the request it was auditing.
+
+### GET /audit-logs
+Read back the trail, most recent first. There is no endpoint that creates,
+edits, or deletes an audit entry — that is the point of one.
+
+Query parameters (all optional):
+
+| Parameter | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `resource_type` | string | — | Exact match, e.g. `organization`. |
+| `user_id` | int | — | Exact match on the acting user. |
+| `limit` | int | `50` | `1`–`200`; outside that range is a `422`. |
+| `offset` | int | `0` | Entries to skip, for paging. |
+
+Response `200` — ordered by `timestamp` descending (`id` descending breaks
+ties, so paging never skips or repeats an entry):
+```json
+[
+  {
+    "id": 202,
+    "user_id": 611,
+    "action": "CREATE",
+    "resource_type": "organization",
+    "resource_id": null,
+    "endpoint": "/api/organizations",
+    "status_code": 201,
+    "timestamp": "2026-08-28T07:00:42.125296Z"
+  }
+]
+```
+Errors: `401` without a valid bearer token, like every other endpoint;
+`422` if `limit`/`offset` are out of range.
+
+---
+
 ## Standard Error Shape
 
 All errors follow:
