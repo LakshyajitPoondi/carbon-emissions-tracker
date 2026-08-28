@@ -1,0 +1,139 @@
+name: CI
+
+# Every push and every pull request, on all branches. No path filters: the
+# backend suite exercises the whole app, so "it only touched docs" is not a
+# safe reason to skip it.
+on:
+  push:
+  pull_request:
+
+# Read-only by default; nothing here needs to write to the repo.
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # Versions pinned to match docker-compose.yml, so CI is testing against
+    # the same engines as local development rather than whatever is newest.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: carbon_user
+          POSTGRES_PASSWORD: carbon_ci_password
+          POSTGRES_DB: carbon_emissions
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U carbon_user -d carbon_emissions"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # Service containers are published on the runner's localhost, not on
+      # the compose network, so the host is localhost rather than "postgres".
+      DATABASE_URL: postgresql://carbon_user:carbon_ci_password@localhost:5432/carbon_emissions
+      REDIS_URL: redis://localhost:6379/0
+      # CI-only value. The real secret lives in the deployment environment;
+      # this exists so the app has something to sign throwaway test tokens
+      # with, and is worthless outside this ephemeral runner.
+      JWT_SECRET_KEY: ci-only-not-a-real-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # matches backend/Dockerfile's python:3.12-slim
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # Native libraries the Python packages bind to but do not bundle.
+      # Mirrors backend/Dockerfile: pyzbar is a thin wrapper around libzbar,
+      # and ultralytics pulls plain opencv-python (not headless), which needs
+      # the GL/glib libs even when only imported. Without these the suite
+      # fails at import time, long before any test runs.
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libzbar0 libgl1 libglib2.0-0
+
+      # Install the CPU build of torch explicitly, before requirements.txt.
+      # requirements.txt lists download.pytorch.org as an *extra* index, so
+      # pip sees torch 2.5.1 on both PyPI and the CPU index and may resolve
+      # to the default CUDA wheel — roughly 2GB of GPU runtime downloaded
+      # onto a runner with no GPU. Installing it first pins the CPU variant;
+      # the later -r install then sees the requirement already satisfied.
+      - name: Install CPU-only torch
+        run: pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      # Runs against a database that was empty seconds ago, so this is a real
+      # from-nothing migration check — the same blank-DB verification used
+      # locally, now enforced on every push rather than remembered by hand.
+      - name: Run database migrations
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Seed emission factors
+        working-directory: backend
+        run: python -m app.seed
+
+      # No `|| true`, no `continue-on-error`, and deliberately not piped into
+      # anything: a pipeline would report the exit status of the last command
+      # and swallow a pytest failure. A red X here is the entire point.
+      - name: Run backend test suite
+        working-directory: backend
+        run: pytest tests/ -v
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24" # matches the local dev toolchain (Vite 8 needs >=22.12)
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # `tsc -b`, not a bare `tsc --noEmit`. frontend/tsconfig.json is a
+      # solution-style config — "files": [] plus references to
+      # tsconfig.app.json and tsconfig.node.json — so a bare `tsc --noEmit`
+      # has no files to check and exits 0 no matter how broken the code is.
+      # Verified: with a deliberate type error present, `tsc --noEmit` exits
+      # 0 while `tsc -b --noEmit` exits 2. Build mode follows the references,
+      # which is what actually typechecks the app.
+      - name: Typecheck
+        working-directory: frontend
+        run: npx tsc -b --noEmit
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build

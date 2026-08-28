@@ -1,5 +1,7 @@
 # Carbon Emissions Tracking Platform
 
+[![CI](https://github.com/LakshyajitPoondi/carbon-emissions-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/LakshyajitPoondi/carbon-emissions-tracker/actions/workflows/ci.yml)
+
 Track energy, fuel, and resource consumption across facilities to calculate
 carbon emissions and generate sustainability reports. FastAPI + PostgreSQL
 backend, React + TypeScript dashboard.
