@@ -1,6 +1,12 @@
 # Environment secrets
 .env
 
+# Local TLS development certificates — generated per-developer by
+# backend/scripts/generate-dev-cert.{sh,ps1}, never committed. A private key
+# in version control ends up copied into a real deployment far more often
+# than anyone expects, and "it's only a dev cert" is how that starts.
+backend/certs/
+
 # Python
 __pycache__/
 *.py[cod]

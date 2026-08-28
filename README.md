@@ -35,6 +35,56 @@ docker compose exec backend python -m app.seed
 
 API available at `http://localhost:8000`. Health check: `GET /health`.
 
+## HTTPS (local dev)
+
+The API also runs over TLS on port 8443, served directly by uvicorn. It is
+**optional and additive** — plain HTTP on 8000 keeps working, which is what
+the frontend dev server talks to.
+
+One-time setup, per developer — generate a self-signed certificate:
+
+```bash
+# Git Bash / WSL / macOS
+sh backend/scripts/generate-dev-cert.sh
+```
+
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File backend\scripts\generate-dev-cert.ps1
+```
+
+No local `openssl`? The PowerShell script falls back to generating the
+certificate inside the running backend container, or you can do that
+directly:
+
+```bash
+docker compose exec backend sh /app/scripts/generate-dev-cert.sh
+```
+
+Either way the files land in `backend/certs/` (gitignored — **never commit
+a private key**). Then start the HTTPS service:
+
+```bash
+docker compose --profile tls up -d backend-https
+```
+
+`https://localhost:8443/health` is now live. **Your browser will show a
+security warning on first visit — that is expected, not a bug.** The
+certificate is signed by nobody, so no browser trusts its issuer; click
+through the warning ("Advanced" → "Proceed"). The certificate itself is
+otherwise valid, including a `subjectAltName` covering `localhost`,
+`127.0.0.1`, and the compose service names. With `curl`, either pass `-k`
+to skip verification or trust the cert explicitly:
+
+```bash
+curl --cacert backend/certs/dev-cert.pem https://localhost:8443/health
+```
+
+In production, TLS is terminated by the hosting platform's managed
+certificates and none of this applies. The app sends HSTS
+(`Strict-Transport-Security`) on every response either way — see
+`docs/api-contract.md`, "TLS / HTTPS".
+
 ## Testing
 
 ```bash

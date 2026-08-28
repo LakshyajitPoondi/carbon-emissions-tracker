@@ -6,7 +6,79 @@ Changes go through the "Contract Change Protocol" (see agents/core.md and agents
 
 Every endpoint below except `POST /auth/register` and `POST /auth/token` requires an `Authorization: Bearer <token>` header. Missing or invalid tokens return `401` using the Standard Error Shape.
 
-Base URL (dev): `http://localhost:8000/api`
+Base URL (dev): `http://localhost:8000/api` — or
+`https://localhost:8443/api` over TLS; see "TLS / HTTPS" below.
+
+---
+
+## TLS / HTTPS
+
+The API is reachable over both plain HTTP and TLS in local development:
+
+| | Base URL | WebSocket | Notes |
+| --- | --- | --- | --- |
+| Plain HTTP | `http://localhost:8000/api` | `ws://localhost:8000/ws/...` | Always on. What the frontend dev server talks to. |
+| TLS | `https://localhost:8443/api` | `wss://localhost:8443/ws/...` | Optional; start with `docker compose --profile tls up -d backend-https`. |
+
+Both are the same application serving the same contract — every endpoint,
+error shape, and WebSocket channel documented here behaves identically on
+either. TLS is terminated by uvicorn itself (`--ssl-keyfile` /
+`--ssl-certfile`), not by a separate reverse proxy.
+
+**The local certificate is self-signed, so browsers will show a security
+warning on first visit. That is expected and documented behaviour, not a
+bug.** The certificate is signed by no recognised authority, so no browser
+trusts its issuer; click through the warning to proceed. It is otherwise a
+well-formed certificate — `subjectAltName` covers `localhost`,
+`127.0.0.1`, `::1`, and the compose service names, so hostname validation
+passes and a client that is told to trust the cert accepts it outright:
+
+```bash
+curl --cacert backend/certs/dev-cert.pem https://localhost:8443/health   # verifies cleanly
+```
+
+Generating the certificate is a one-time per-developer step
+(`backend/scripts/generate-dev-cert.sh` or `.ps1`) — see the README,
+"HTTPS (local dev)". The certificate and key are gitignored and never
+committed.
+
+**In production**, TLS is terminated by the hosting platform's managed
+certificates (Render for the backend, Vercel for the frontend). The
+application does not terminate TLS there and needs no certificate of its
+own; the self-signed dev certificate is strictly a local-development
+convenience.
+
+### Security headers
+
+Every response — successful or not, on both HTTP and HTTPS — carries:
+
+| Header | Value | Purpose |
+| --- | --- | --- |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Tells the browser never to speak plain HTTP to this origin again. |
+| `X-Content-Type-Options` | `nosniff` | Stops MIME-sniffing a response into something executable. |
+| `X-Frame-Options` | `DENY` | Nothing here is meant to be framed. |
+| `Referrer-Policy` | `no-referrer` | API URLs carry record ids; don't leak them to third parties. |
+
+HSTS is sent **unconditionally, including over plain HTTP**. That is
+deliberate: RFC 6797 requires browsers to ignore the header when it arrives
+over an insecure transport, so sending it on HTTP is inert rather than
+harmful — while the alternative, sending it only when the request looks
+secure, would suppress it in exactly the deployment that needs it most. In
+production the platform terminates TLS upstream and the application only
+ever sees plain HTTP from the proxy, so a scheme-conditional header would
+never be sent at all. A hosting platform providing HTTPS is not the same
+thing as the app telling browsers to *insist* on HTTPS; this header is that
+second part.
+
+Configurable via the environment (see `.env.example`): `HSTS_ENABLED`,
+`HSTS_MAX_AGE`, `HSTS_INCLUDE_SUBDOMAINS`, `HSTS_PRELOAD`. `preload` is off
+by default — submitting an origin to the browser preload list is
+effectively irreversible on any useful timescale.
+
+There is deliberately **no** `Content-Security-Policy`: this app serves
+Swagger UI at `/docs` and GraphiQL at `/graphql`, both of which load
+scripts and styles from a CDN, and a blanket CSP would silently break both
+interactive consoles.
 
 ---
 

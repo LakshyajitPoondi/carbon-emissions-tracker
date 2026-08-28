@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.auth import get_current_user
 from app.graphql.schema import graphql_router
 from app.middleware.audit import AuditLogMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.ml import load_model
 from app.pubsub import run_subscriber
 from app.routers import (
@@ -97,6 +98,16 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 app.add_middleware(AuditLogMiddleware)
+
+# ---------------------------------------------------------------------------
+# Security headers — HSTS plus companion hardening headers on every
+# response, including error responses. Sent whether or not this process is
+# the one terminating TLS: in production a platform terminates it upstream
+# and this app sees plain HTTP, but the browser still needs to be told to
+# stay on HTTPS. See app/middleware/security_headers.py.
+# ---------------------------------------------------------------------------
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ---------------------------------------------------------------------------
 # Custom validation-error handler

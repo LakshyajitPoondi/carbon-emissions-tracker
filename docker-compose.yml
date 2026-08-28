@@ -35,6 +35,50 @@ services:
     volumes:
       - ./backend:/app
 
+  # Same image and code as `backend`, served over TLS on 8443 by uvicorn's
+  # native --ssl-* support. Runs ALONGSIDE the plain-HTTP backend rather
+  # than replacing it: the frontend dev server and the existing tooling
+  # point at http://localhost:8000, and frontend/ is outside this agent's
+  # ownership (see agents/core.md), so switching the API to HTTPS-only
+  # would break it unilaterally.
+  #
+  # Behind the "tls" profile, so a plain `docker compose up -d` is
+  # unaffected and never fails on a missing certificate. Start it with:
+  #   docker compose --profile tls up -d backend-https
+  # after generating a certificate — see README, "HTTPS (local dev)".
+  backend-https:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: carbon_backend_https
+    profiles: ["tls"]
+    # Not "unless-stopped": if the certificate is missing, one clear startup
+    # failure is far more diagnosable than an endless restart loop.
+    restart: "no"
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8443"
+      - --ssl-keyfile
+      - ${TLS_KEY_FILE:-/app/certs/dev-key.pem}
+      - --ssl-certfile
+      - ${TLS_CERT_FILE:-/app/certs/dev-cert.pem}
+      - --reload
+    env_file:
+      - .env
+    ports:
+      - "8443:8443"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
   redis:
     image: redis:7-alpine
     container_name: carbon_redis
