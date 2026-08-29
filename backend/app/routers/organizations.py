@@ -1,13 +1,14 @@
 """Organization endpoints.
 
-POST /organizations  — create an organization
+POST /organizations      — create an organization
+GET  /organizations      — list the organizations you are a member of
 GET  /organizations/{id} — retrieve an organization by ID
 """
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.authorization import require_organization
+from app.authorization import require_organization, user_organization_ids
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.organization import Organization
@@ -60,6 +61,48 @@ def create_organization(
     db.commit()
     db.refresh(org)
     return org
+
+
+@router.get(
+    "",
+    response_model=list[OrganizationResponse],
+)
+def list_organizations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Every organization this user is a member of; `[]` if none.
+
+    Membership — not authorship — is what this returns. It deliberately
+    delegates to user_organization_ids rather than writing its own join, so
+    there is exactly one definition of "belongs to" in the codebase and this
+    endpoint cannot drift from the access checks that guard every other
+    route. An implementation that filtered on a creator column instead would
+    look correct for anyone who made their own organization and silently
+    hide organizations shared with them.
+
+    No pagination, deliberately: a membership list is bounded by the number
+    of organizations a person has been added to — single digits here, and
+    tens in any plausible version of this product. Offset pagination on a
+    result set that small costs a second round trip and a page-boundary bug
+    class to solve a problem this endpoint does not have. Ordering is stable
+    (see below), so pagination can be added later without changing what
+    callers already see.
+    """
+    organization_ids = user_organization_ids(db, current_user)
+    if not organization_ids:
+        # Skip a query that can only return nothing.
+        return []
+
+    # Ordered by name for a predictable picker; id breaks ties, because two
+    # organizations may legitimately share a name and "ordered by name"
+    # alone would leave their relative order up to the database.
+    return (
+        db.query(Organization)
+        .filter(Organization.id.in_(organization_ids))
+        .order_by(Organization.name.asc(), Organization.id.asc())
+        .all()
+    )
 
 
 @router.get(

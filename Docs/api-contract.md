@@ -160,6 +160,38 @@ Response `201`:
 ```
 Errors: `422` if `name` or `industry_type` missing/empty.
 
+The caller becomes an `OWNER` member of the organization it creates — see
+"Authorization and organization membership".
+
+### GET /organizations
+List the organizations the authenticated user is a **member of**. This is the
+endpoint a client uses to populate an organization picker; there is no way to
+enumerate organizations you do not belong to.
+
+Response `200`: array of organization objects, same shape as
+`GET /organizations/{id}`:
+```json
+[
+  { "id": 1, "name": "Acme Manufacturing", "industry_type": "manufacturing", "created_at": "2026-08-26T10:00:00Z" },
+  { "id": 4, "name": "Zephyr Logistics", "industry_type": "logistics", "created_at": "2026-08-27T09:00:00Z" }
+]
+```
+
+Returns `[]` — not a `404` — for a user with no memberships. A newly
+registered account is exactly this case, and clients should treat it as a
+first-run empty state rather than an error.
+
+**Ordering** is by `name` ascending, with `id` ascending as a tie-break so
+that organizations sharing a name still come back in a stable order. The
+order is guaranteed to be the same across calls for the same data.
+
+**No pagination.** The result is bounded by how many organizations one person
+has been added to — single digits in practice. Since the ordering is stable,
+pagination can be introduced later without changing the results callers
+already see.
+
+Errors: `401` without a valid bearer token, as everywhere.
+
 ### GET /organizations/{id}
 Response `200`: same shape as above. `404` if it does not exist **or you are
 not a member of it** — the two are indistinguishable by design.
