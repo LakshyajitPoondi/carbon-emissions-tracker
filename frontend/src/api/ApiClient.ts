@@ -62,6 +62,16 @@ export interface ApiClient {
   createOrganization(req: OrganizationCreateRequest): Promise<Organization>;
   getOrganization(id: number): Promise<Organization>;
 
+  /**
+   * GET /organizations — the organizations the current user is a member of,
+   * name-ordered by the server, `[]` when they belong to none.
+   *
+   * The server is the source of truth for discovery: no client-side cache of
+   * organization ids is involved, so a user sees their organizations on any
+   * browser, including one with empty storage.
+   */
+  listOrganizations(): Promise<Organization[]>;
+
   createFacility(req: FacilityCreateRequest): Promise<Facility>;
   listFacilities(organizationId: number): Promise<Facility[]>;
 

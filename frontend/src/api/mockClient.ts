@@ -350,6 +350,16 @@ export const mockClient: ApiClient = {
     return requireOrganization(id);
   },
 
+  async listOrganizations() {
+    await delay();
+    // The mock has a single implicit tenant, so every organization it holds
+    // belongs to the caller. Sorted by name to match the ordering the real
+    // endpoint guarantees, so the picker looks the same in both modes.
+    return [...organizations].sort(
+      (a, b) => a.name.localeCompare(b.name) || a.id - b.id,
+    );
+  },
+
   async createFacility(req: FacilityCreateRequest) {
     await delay();
     requireOrganization(req.organization_id);

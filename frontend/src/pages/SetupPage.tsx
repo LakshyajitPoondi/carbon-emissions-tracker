@@ -4,14 +4,13 @@ import { apiClient } from "../api";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
-import type { EmissionSource, Facility, Organization, SourceType } from "../types";
+import type { EmissionSource, Facility, SourceType } from "../types";
 import { SOURCE_TYPES } from "../types";
-import { loadKnownOrganizations, rememberOrganization } from "../utils/knownOrganizations";
 
 type ListStatus = "loading" | "ready" | "error";
 
 export function SetupPage() {
-  const { organization, facility, selectOrganization, selectFacility } = useAppState();
+  const { organization, facility, selectFacility } = useAppState();
 
   return (
     <main className="page">
@@ -20,7 +19,7 @@ export function SetupPage() {
         Pick or create an organization, then a facility, then the emission sources it tracks. Once a
         facility is selected here, the Consumption, Dashboard and Reports screens use it automatically.
       </p>
-      <OrganizationSection organization={organization} onSelect={selectOrganization} />
+      <OrganizationSection />
       {organization && (
         <FacilitySection
           organizationId={organization.id}
@@ -34,19 +33,24 @@ export function SetupPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Organizations — no list endpoint in the contract, so this section works
-// off a small client-side memory of orgs created/looked-up this session
-// (see src/utils/knownOrganizations.ts) plus create/get-by-id calls.
+// Organizations — the contract still has no list endpoint, so the picker is
+// built from this browser's cache of organizations it has created or looked
+// up. Since the backend gained membership authorization, that cache is
+// revalidated against the server before it is shown (see AppStateContext):
+// anything this user cannot actually access is dropped, so a second user on
+// the same browser never sees the first user's organizations.
 // ---------------------------------------------------------------------------
 
-function OrganizationSection({
-  organization,
-  onSelect,
-}: {
-  organization: Organization | null;
-  onSelect: (org: Organization | null) => void;
-}) {
-  const [known, setKnown] = useState<Organization[]>(() => loadKnownOrganizations());
+function OrganizationSection() {
+  const {
+    organization,
+    organizations: known,
+    organizationsStatus,
+    organizationsError,
+    selectOrganization: onSelect,
+    rememberOrganization,
+    revalidateOrganizations,
+  } = useAppState();
 
   const [name, setName] = useState("");
   const [industryType, setIndustryType] = useState("");
@@ -63,7 +67,7 @@ function OrganizationSection({
     setCreateError(null);
     try {
       const org = await apiClient.createOrganization({ name, industry_type: industryType });
-      setKnown(rememberOrganization(org));
+      rememberOrganization(org);
       onSelect(org);
       setName("");
       setIndustryType("");
@@ -85,7 +89,7 @@ function OrganizationSection({
     setLookupError(null);
     try {
       const org = await apiClient.getOrganization(id);
-      setKnown(rememberOrganization(org));
+      rememberOrganization(org);
       onSelect(org);
       setLookupId("");
     } catch (err) {
@@ -99,11 +103,25 @@ function OrganizationSection({
     <section className="card">
       <h2>1. Organization</h2>
 
+      {organizationsStatus === "loading" && (
+        <LoadingState label="Loading your organizations…" />
+      )}
+
+      {organizationsStatus === "error" && (
+        <ErrorBanner error={organizationsError} onRetry={revalidateOrganizations} />
+      )}
+
+      {organizationsStatus === "ready" && known.length === 0 && (
+        <p className="empty-state">
+          You don&rsquo;t have any organizations yet — create one below to get started.
+        </p>
+      )}
+
       {known.length > 0 && (
         <div className="field">
-          <label htmlFor="known-org-select">Select a known organization</label>
+          <label htmlFor="your-org-select">Your organizations</label>
           <select
-            id="known-org-select"
+            id="your-org-select"
             value={organization?.id ?? ""}
             onChange={(e) => {
               const id = Number(e.target.value);

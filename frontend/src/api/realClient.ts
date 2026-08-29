@@ -99,6 +99,11 @@ export const realClient: ApiClient = {
 
   getOrganization: (id) => request(`/organizations/${id}`),
 
+  // One request, and the server already returns these name-ordered — no
+  // client-side sorting, so the picker's order matches the contract rather
+  // than a second opinion about it.
+  listOrganizations: () => request("/organizations"),
+
   createFacility: (req) =>
     request("/facilities", { method: "POST", body: JSON.stringify(req) }),
 
