@@ -52,7 +52,11 @@ jobs:
       # CI-only value. The real secret lives in the deployment environment;
       # this exists so the app has something to sign throwaway test tokens
       # with, and is worthless outside this ephemeral runner.
-      JWT_SECRET_KEY: ci-only-not-a-real-secret
+      #
+      # Must be at least 32 characters: app/auth.py refuses to import with a
+      # shorter secret, so a too-short value here fails every job at the
+      # import of the application rather than at any individual test.
+      JWT_SECRET_KEY: ci-only-not-a-real-secret-padded-to-length
 
     steps:
       - uses: actions/checkout@v4

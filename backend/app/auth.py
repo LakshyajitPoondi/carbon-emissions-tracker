@@ -5,6 +5,7 @@ APIRouter level via `dependencies=[Depends(get_current_user)]`) so a missing or
 invalid bearer token returns 401 before the endpoint body ever runs.
 """
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -18,7 +19,114 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "insecure-dev-secret-change-me")
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# JWT secret configuration
+#
+# This value signs every token, so anyone who knows it can mint a valid token
+# for any user. It used to fall back to a hardcoded string when the
+# environment variable was missing, which meant a deployment that simply
+# forgot to set JWT_SECRET_KEY came up looking healthy while accepting
+# forged tokens signed with a secret published in this repository.
+#
+# There is now no silent fallback. A missing, known, or weak secret stops the
+# process at import time, which is the loudest and earliest failure available:
+# uvicorn exits rather than serving traffic with a worthless signature.
+# ---------------------------------------------------------------------------
+
+# The historical fallback. Kept only so it can be recognised and rejected.
+INSECURE_DEFAULT_SECRET = "insecure-dev-secret-change-me"
+
+# Placeholders shipped in .env.example and k8s/secret.example.yaml. They are
+# rejected by name as well as by length, so a config copied verbatim from a
+# template fails immediately instead of quietly becoming a production secret.
+KNOWN_PLACEHOLDER_SECRETS = frozenset(
+    {
+        INSECURE_DEFAULT_SECRET,
+        "change_me_to_a_long_random_secret",
+        "replace-with-a-long-random-secret",
+        "REPLACE_ME_WITH_A_GENERATED_SECRET",
+    }
+)
+
+# 32 characters is the floor for an HS256 signing key: the algorithm's
+# security rests on the key having at least as much entropy as the 256-bit
+# digest it produces. Anything shorter is brute-forceable regardless of how
+# unguessable it looks.
+MIN_JWT_SECRET_LENGTH = 32
+
+DEV_ESCAPE_HATCH_ENV = "ALLOW_INSECURE_DEV_SECRET"
+
+
+class InsecureJWTSecretError(RuntimeError):
+    """Raised at import time when JWT_SECRET_KEY is missing, known, or weak.
+
+    Deliberately fatal: an application that cannot sign tokens safely should
+    not start at all.
+    """
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def validate_jwt_secret(secret: Optional[str], *, allow_insecure: bool = False) -> str:
+    """Return *secret* if it is fit to sign tokens with, else raise.
+
+    `allow_insecure` is the opt-in developer escape hatch. It is off unless
+    ALLOW_INSECURE_DEV_SECRET is explicitly set, so the unsafe path can only
+    ever be reached on purpose — never by omission, which is the failure mode
+    this whole function exists to prevent.
+    """
+    if allow_insecure:
+        logger.warning(
+            "%s is set: using an insecure development JWT secret. Tokens signed "
+            "with it are forgeable by anyone with this source code. Never set "
+            "this outside local development.",
+            DEV_ESCAPE_HATCH_ENV,
+        )
+        return secret or INSECURE_DEFAULT_SECRET
+
+    if not secret:
+        raise InsecureJWTSecretError(
+            "JWT_SECRET_KEY is not set. Generate one with:\n"
+            '  python -c "import secrets; print(secrets.token_urlsafe(32))"\n'
+            f"and set it in your environment, or set {DEV_ESCAPE_HATCH_ENV}=true "
+            "to run with a known-insecure development secret."
+        )
+
+    if secret in KNOWN_PLACEHOLDER_SECRETS:
+        raise InsecureJWTSecretError(
+            "JWT_SECRET_KEY is still the placeholder value shipped in this "
+            "repository, which is public knowledge and would let anyone forge "
+            "tokens. Generate a real one with:\n"
+            '  python -c "import secrets; print(secrets.token_urlsafe(32))"'
+        )
+
+    if len(secret) < MIN_JWT_SECRET_LENGTH:
+        raise InsecureJWTSecretError(
+            f"JWT_SECRET_KEY is {len(secret)} characters; at least "
+            f"{MIN_JWT_SECRET_LENGTH} are required to sign HS256 tokens safely. "
+            "Generate one with:\n"
+            '  python -c "import secrets; print(secrets.token_urlsafe(32))"'
+        )
+
+    return secret
+
+
+def load_jwt_secret() -> str:
+    """Read and validate the secret from the environment. Called at import."""
+    return validate_jwt_secret(
+        os.getenv("JWT_SECRET_KEY"),
+        allow_insecure=_env_flag(DEV_ESCAPE_HATCH_ENV),
+    )
+
+
+JWT_SECRET_KEY = load_jwt_secret()
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
