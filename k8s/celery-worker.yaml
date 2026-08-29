@@ -1,0 +1,53 @@
+# Celery worker — generates reports asynchronously off the request path.
+#
+# No Service, deliberately: nothing ever connects *to* a worker. It reaches
+# out to Redis for work and to Postgres for data, so it needs no stable
+# address of its own and nothing should be able to dial it.
+#
+# No migration init container either — the backend Deployment owns schema
+# management, and two components racing to migrate the same database is a
+# good way to deadlock a deploy. The worker only reads and writes rows.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  labels:
+    app.kubernetes.io/name: celery-worker
+    app.kubernetes.io/part-of: carbon-emissions-tracker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: celery-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: celery-worker
+        app.kubernetes.io/part-of: carbon-emissions-tracker
+    spec:
+      containers:
+        - name: celery-worker
+          image: carbon-backend:v1
+          # Not Never — see the image-strategy note in k8s/backend.yaml.
+          # Never skips Docker Desktop's registry mirror and fails even
+          # though the image exists locally.
+          imagePullPolicy: IfNotPresent
+          # Same image as the backend, different entrypoint — matching how
+          # docker-compose.yml runs this from the same build.
+          command:
+            ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
+          envFrom:
+            - configMapRef:
+                name: carbon-config
+            - secretRef:
+                name: carbon-secrets
+          # A worker with no HTTP surface has nothing to probe over HTTP.
+          # `celery inspect ping` is the real check, but it costs a full
+          # broker round trip on every probe; for a single-node demo the
+          # process being alive is a fair proxy.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi

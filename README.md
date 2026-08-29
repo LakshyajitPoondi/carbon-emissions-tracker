@@ -121,6 +121,15 @@ certificates and none of this applies. The app sends HSTS
 (`Strict-Transport-Security`) on every response either way — see
 `docs/api-contract.md`, "TLS / HTTPS".
 
+## Kubernetes
+
+The backend, Celery worker, PostgreSQL and Redis also run on Docker
+Desktop's built-in single-node Kubernetes cluster. Manifests are in
+[`k8s/`](k8s/); see [`k8s/README.md`](k8s/README.md) for the build, deploy
+and verification steps — including the image-pull-policy detail that Docker
+Desktop's kind-based cluster requires. The frontend is not deployed there
+(it has no Dockerfile and runs via `npm run dev`).
+
 ## Testing
 
 ```bash

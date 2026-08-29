@@ -1,0 +1,140 @@
+# FastAPI backend — the only component reachable from outside the cluster.
+#
+# IMAGE STRATEGY — the one thing to get right on Docker Desktop
+# -------------------------------------------------------------
+# `carbon-backend:v1` is built locally by backend/Dockerfile and never
+# pushed anywhere. It reaches the cluster because containerd in Docker
+# Desktop's node routes every pull through an internal mirror
+# (registry-mirror:1273) that is backed by the local Docker image store.
+#
+# That only works if the kubelet is allowed to *pull*. imagePullPolicy
+# MUST NOT be Never here: Never means "use only what containerd already
+# has", which skips the mirror and fails with ErrImageNeverPull — even
+# though `docker images` clearly shows the image. This is the opposite of
+# the usual advice for local clusters, and it is the single detail that
+# makes or breaks this deployment. Verified both ways on this machine.
+#
+# Rebuild + retag (see k8s/README.md) and bump the tag rather than reusing
+# :latest, so IfNotPresent cannot serve a stale cached layer set.
+#
+# Service type is NodePort, not LoadBalancer. LoadBalancer is meaningless on
+# a kind-based cluster: there is no cloud controller to satisfy it, so the
+# Service would sit at EXTERNAL-IP <pending> forever. NodePort is the
+# simpler and honest choice for a single-node local cluster.
+#
+# Caveat verified on this machine: Docker Desktop's kind-based Kubernetes
+# does NOT publish NodePorts to the Windows host — http://localhost:30800
+# is unreachable from the host, and so is the equivalent from the Docker
+# daemon. The NodePort is real and works from inside the cluster; to reach
+# the API from your machine use `kubectl port-forward`, which is what
+# k8s/README.md documents.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: carbon-emissions-tracker
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      nodePort: 30800
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: carbon-emissions-tracker
+spec:
+  # One replica on purpose. The WebSocket connection registry is in-process
+  # (backend/app/ws.py), and the migration init container below assumes it
+  # is not racing a second copy of itself.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+        app.kubernetes.io/part-of: carbon-emissions-tracker
+    spec:
+      initContainers:
+        # Schema first, then seed data, then the app starts. Running this as
+        # an init container rather than in the app's own entrypoint means a
+        # failed migration blocks startup loudly instead of leaving a
+        # running API talking to a half-migrated database.
+        - name: migrate
+          image: carbon-backend:v1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "waiting for postgres to accept connections..."
+              until python -c "import socket; socket.create_connection(('postgres', 5432), 3)" 2>/dev/null; do
+                sleep 2
+              done
+              echo "postgres is up; applying migrations"
+              alembic upgrade head
+              echo "seeding emission factors (idempotent)"
+              python -m app.seed
+          envFrom:
+            - configMapRef:
+                name: carbon-config
+            - secretRef:
+                name: carbon-secrets
+      containers:
+        - name: backend
+          image: carbon-backend:v1
+          imagePullPolicy: IfNotPresent
+          # Overrides the Dockerfile CMD to drop --reload. The reloader is a
+          # development convenience tied to the compose bind mount; in the
+          # cluster the code is baked into the image and cannot change under
+          # a running pod, so watching for edits only burns CPU.
+          command:
+            ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: carbon-config
+            - secretRef:
+                name: carbon-secrets
+          # Startup is slower than a plain web app: the lifespan handler
+          # imports torch and loads the YOLOv8n weights baked into the image
+          # before serving (backend/app/ml.py). The startup probe gives that
+          # up to 2.5 minutes without a slow boot being mistaken for a hang
+          # by the liveness probe.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              # torch plus the model is the floor here, not the app itself.
+              memory: 2Gi

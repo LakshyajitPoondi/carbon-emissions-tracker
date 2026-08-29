@@ -1,0 +1,35 @@
+# Non-sensitive configuration shared by backend, celery-worker and postgres.
+#
+# Anything that embeds a credential lives in the Secret instead — note that
+# DATABASE_URL is in the Secret, not here, because the password is part of
+# the connection string.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: carbon-config
+  labels:
+    app.kubernetes.io/part-of: carbon-emissions-tracker
+data:
+  # Service names double as DNS hostnames inside the cluster, so "postgres"
+  # and "redis" resolve exactly the way the compose service names do.
+  POSTGRES_USER: carbon_user
+  POSTGRES_DB: carbon_emissions
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+
+  REDIS_URL: redis://redis:6379/0
+
+  JWT_ALGORITHM: HS256
+  JWT_EXPIRE_MINUTES: "60"
+
+  # The frontend is not deployed to the cluster (it has no Dockerfile — see
+  # k8s/README.md), so this stays pointed at the local Vite dev server,
+  # which is how a browser would actually reach this API.
+  CORS_ALLOWED_ORIGINS: http://localhost:5173
+
+  # Sent on every response regardless of who terminates TLS; see
+  # backend/app/middleware/security_headers.py.
+  HSTS_ENABLED: "true"
+  HSTS_MAX_AGE: "31536000"
+  HSTS_INCLUDE_SUBDOMAINS: "true"
+  HSTS_PRELOAD: "false"

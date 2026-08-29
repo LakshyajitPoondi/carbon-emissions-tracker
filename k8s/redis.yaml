@@ -1,0 +1,65 @@
+# Redis — internal only. Two jobs here, both purely in-flight data: the
+# Celery broker/result backend, and the pub/sub bridge that lets the
+# celery-worker process push WebSocket broadcasts through the backend
+# process (see backend/app/pubsub.py).
+#
+# Deliberately no PersistentVolumeClaim. Nothing in this system treats Redis
+# as the durable copy of anything — reports live in Postgres — so a restart
+# losing queued state is acceptable, and a volume would imply a persistence
+# guarantee the app does not actually rely on.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: carbon-emissions-tracker
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: carbon-emissions-tracker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/part-of: carbon-emissions-tracker
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine # same version as docker-compose.yml
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

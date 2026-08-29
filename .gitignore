@@ -1,6 +1,12 @@
 # Environment secrets
 .env
 
+# Real Kubernetes Secret manifest — created locally from
+# k8s/secret.example.yaml, which is the committed template. Same reasoning
+# as the certificates below: the example shows the shape, the real values
+# never enter version control.
+k8s/secret.yaml
+
 # Local TLS development certificates — generated per-developer by
 # backend/scripts/generate-dev-cert.{sh,ps1}, never committed. A private key
 # in version control ends up copied into a real deployment far more often
