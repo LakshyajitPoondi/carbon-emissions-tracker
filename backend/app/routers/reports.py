@@ -8,14 +8,13 @@ GET  /reports?organization_id={id} — list report summaries for an organization
 """
 
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
+from app.authorization import require_organization, require_report
 from app.database import get_db
-from app.models.organization import Organization
+from app.models.user import User
 from app.models.report import Report, ReportStatusEnum
-from app.schemas.error import error_response
 from app.schemas.report import (
     ReportDetailResponse,
     ReportGenerateRequest,
@@ -55,16 +54,11 @@ def _detail_response(report: Report) -> ReportDetailResponse:
 def generate_report(
     body: ReportGenerateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    org = db.get(Organization, body.organization_id)
-    if org is None:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content=error_response(
-                "NOT_FOUND",
-                f"Organization {body.organization_id} does not exist",
-            ),
-        )
+    # Reports aggregate an entire organization's emissions — the single most
+    # sensitive read in the system, so it is scoped like any other.
+    require_organization(db, current_user, body.organization_id)
 
     report = Report(
         organization_id=body.organization_id,
@@ -97,16 +91,10 @@ def generate_report(
 def get_report(
     report_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    report = db.get(Report, report_id)
-    if report is None:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content=error_response(
-                "NOT_FOUND",
-                f"Report {report_id} does not exist",
-            ),
-        )
+    # Walks report.organization_id -> membership.
+    report = require_report(db, current_user, report_id)
     return _detail_response(report)
 
 
@@ -117,7 +105,10 @@ def get_report(
 def list_reports(
     organization_id: int = Query(..., description="Filter by organization ID"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_organization(db, current_user, organization_id)
+
     reports = (
         db.query(Report)
         .filter(Report.organization_id == organization_id)

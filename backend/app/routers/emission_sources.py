@@ -10,9 +10,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
+from app.authorization import require_emission_source, require_facility
 from app.database import get_db
 from app.models.emission_source import EmissionSource, SourceTypeEnum
-from app.models.facility import Facility
+from app.models.user import User
 from app.schemas.emission_source import EmissionSourceCreate, EmissionSourceResponse
 from app.schemas.error import error_response
 from app.schemas.label import LabelResponse
@@ -33,17 +34,11 @@ router = APIRouter(
 def create_emission_source(
     body: EmissionSourceCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    # Verify the parent facility exists
-    facility = db.get(Facility, body.facility_id)
-    if facility is None:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content=error_response(
-                "NOT_FOUND",
-                f"Facility {body.facility_id} does not exist",
-            ),
-        )
+    # Replaces the old existence check: a facility in someone else's
+    # organization is indistinguishable from one that does not exist.
+    require_facility(db, current_user, body.facility_id)
 
     if body.barcode_value is not None:
         existing = (
@@ -84,7 +79,12 @@ def create_emission_source(
 def list_emission_sources(
     facility_id: int = Query(..., description="Filter by facility ID"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    # 404 rather than an empty list: an empty list would still confirm the
+    # facility id exists.
+    require_facility(db, current_user, facility_id)
+
     sources = (
         db.query(EmissionSource)
         .filter(EmissionSource.facility_id == facility_id)
@@ -105,21 +105,15 @@ def get_emission_source_label(
         "Set false to skip the outbound call and return ZPL text only.",
     ),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Generate a printer-ready ZPL label for this source's barcode.
 
     Nothing is stored: the label is derived from the source on each call,
     so it always reflects the current source name, facility, and barcode.
     """
-    source = db.get(EmissionSource, emission_source_id)
-    if source is None:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content=error_response(
-                "NOT_FOUND",
-                f"Emission source {emission_source_id} does not exist",
-            ),
-        )
+    # Walks source -> facility -> organization -> membership.
+    source = require_emission_source(db, current_user, emission_source_id)
 
     # A label whose barcode field is empty is worse than no label — it
     # looks scannable, prints, and then fails silently at the scanner. Fail

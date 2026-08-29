@@ -126,7 +126,14 @@ class TestReadOperationsAreNotAudited:
         assert len(rows_after_write) == 1
 
         assert client.get(f"/api/organizations/{organization['id']}").status_code == 200
-        assert client.get("/api/facilities?organization_id=1").status_code == 200
+        # Scoped to an organization this client owns — organization 1 is
+        # not necessarily its own, and now correctly 404s.
+        assert (
+            client.get(
+                f"/api/facilities?organization_id={organization['id']}"
+            ).status_code
+            == 200
+        )
         assert client.get("/api/emission-factors").status_code == 200
 
         # Still exactly the one row from the POST.

@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.auth import get_user_from_token
+from app.authorization import is_member
 from app.database import get_db
 from app.models.facility import Facility
 from app.models.organization import Organization
@@ -72,7 +73,13 @@ async def facility_updates(
         return
 
     facility = db.get(Facility, facility_id)
-    if facility is None:
+    # Membership is checked before accept(), so a non-member is never added
+    # to the broadcast channel — not accepted-then-dropped, never joined.
+    #
+    # Deliberately the same close code as "no such facility": a distinct
+    # forbidden code would let anyone enumerate valid facility ids over the
+    # socket, undoing the 404 masking the REST layer does.
+    if facility is None or not is_member(db, user.id, facility.organization_id):
         await websocket.close(code=CLOSE_NOT_FOUND)
         return
 
@@ -92,7 +99,8 @@ async def organization_updates(
         return
 
     organization = db.get(Organization, organization_id)
-    if organization is None:
+    # Same masking as the facility channel above.
+    if organization is None or not is_member(db, user.id, organization_id):
         await websocket.close(code=CLOSE_NOT_FOUND)
         return
 

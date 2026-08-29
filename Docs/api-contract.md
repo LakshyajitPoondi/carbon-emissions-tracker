@@ -82,6 +82,45 @@ interactive consoles.
 
 ---
 
+## Authorization and organization membership
+
+Authentication answers *who is this*; membership answers *is this theirs*.
+A valid token alone grants access to nothing.
+
+Users are linked to organizations through `organization_members`
+(`user_id`, `organization_id`, `role`). One role exists today, `OWNER`, and
+no endpoint behaves differently based on it — the column is there so adding
+a second role later is a data change rather than a migration, and a database
+CHECK constraint rejects any other value.
+
+**How membership is created.** `POST /organizations` makes the calling user
+an `OWNER` of the organization it creates, in the same transaction. That is
+the *only* way a membership comes into existence in this version. In
+particular:
+
+- Registering an account grants no membership. A new user belongs to nothing
+  and sees nothing until they create an organization.
+- There is no endpoint for adding another user to an existing organization
+  yet. The schema supports it; the API deliberately does not expose it.
+
+**What membership gates.** Every organization-owned resource, reached either
+directly (`organizations`, `reports`) or by walking foreign keys
+(`emission_sources` → `facilities` → organization). This applies identically
+across REST, GraphQL and WebSockets — there is no path to the data that
+skips the check.
+
+The one deliberate exception is `GET /emission-factors`: published emission
+coefficients are shared reference data with no `organization_id` and no
+per-tenant meaning. It requires a token but not a membership. This is a
+decision, not an omission.
+
+**Denials are indistinguishable from absence.** A resource belonging to
+another organization returns exactly what a nonexistent one returns — `404`
+with code `NOT_FOUND` and the same message wording. See "Standard Error
+Shape" for why `404` rather than `403`.
+
+---
+
 ## Auth
 
 ### POST /auth/register
@@ -122,7 +161,8 @@ Response `201`:
 Errors: `422` if `name` or `industry_type` missing/empty.
 
 ### GET /organizations/{id}
-Response `200`: same shape as above. `404` if not found.
+Response `200`: same shape as above. `404` if it does not exist **or you are
+not a member of it** — the two are indistinguishable by design.
 
 ---
 
@@ -134,10 +174,13 @@ Request:
 { "organization_id": 1, "name": "Chennai Plant", "location": "Chennai, TN", "facility_type": "factory" }
 ```
 Response `201`: same fields + `id`, `created_at`, `updated_at`.
-Errors: `404` if `organization_id` doesn't exist. `422` on missing fields.
+Errors: `404` if `organization_id` doesn't exist or you are not a member of
+it. `422` on missing fields.
 
 ### GET /facilities?organization_id={id}
-Response `200`: array of facility objects.
+Response `200`: array of facility objects. `404` if the organization does not
+exist or you are not a member — deliberately not an empty `200`, which would
+still confirm the id is real.
 
 ---
 
@@ -287,6 +330,8 @@ Errors:
 
 Seeded via a migration/seed script, not created through the API in the MVP.
 
+**Not membership-scoped, deliberately.** These are published coefficients shared by every organization — reference data with no `organization_id`. A valid token is required; a membership is not. See "Authorization and organization membership".
+
 ### GET /emission-factors?source_type={type}&region={region}
 Response `200`:
 ```json
@@ -339,7 +384,7 @@ Response `201`:
   }
 }
 ```
-Errors: `404` if `emission_source_id`/`facility_id` invalid. `422` if no matching emission factor exists for that source's region/type (report this as a specific error code `NO_MATCHING_FACTOR` so the frontend can show a clear message, not a generic 500).
+Errors: `404` if `emission_source_id`/`facility_id` is invalid **or belongs to another organization**. `422` `SOURCE_FACILITY_MISMATCH` if the source exists and is accessible but belongs to a different facility than the one the record is filed against — enforced by a composite foreign key in the database as well as by the handler, so no write path can bypass it. `422` if no matching emission factor exists for that source's region/type (report this as a specific error code `NO_MATCHING_FACTOR` so the frontend can show a clear message, not a generic 500).
 
 ### GET /consumption-records?facility_id={id}&start_date=&end_date=
 Response `200`: array of consumption records, each including its nested `calculation` object (or `null` if none).
@@ -430,7 +475,11 @@ silently accepted and then dropped. Close codes:
   or invalid credentials") if `token` is missing, malformed, or doesn't
   resolve to a user.
 - `4004` (private-use range, mirrors HTTP `404`) if the resource (facility
-  or organization) doesn't exist.
+  or organization) doesn't exist, **or you are not a member of its
+  organization**. Deliberately the same code for both: a distinct
+  "forbidden" code would let anyone enumerate valid facility ids over the
+  socket, undoing the `404` masking the REST layer performs. Membership is
+  checked before `accept()`, so a non-member never joins the channel.
 
 ### GET /ws/facilities/{facility_id}?token={jwt}
 
@@ -532,6 +581,14 @@ required, enforced before the query executes — a missing or invalid token
 gets the same `401` + Standard Error Shape response as any REST endpoint,
 not a GraphQL-shaped error. Like `/health` and `/ws`, this sits outside the
 `/api` prefix.
+
+**Membership is enforced identically to REST.** `organization(id)` resolves
+only organizations you belong to; anything else returns `data.organization:
+null` with a `NOT_FOUND` error in `errors`, exactly as a nonexistent
+organization does. GraphQL is not a second, unscoped path to the same rows.
+Nested fields (`facilities`, `emissionsSummary`, `emissionSources`) are
+reachable only through that root field, so authorizing the root authorizes
+the subtree.
 
 ### GET /graphql — the GraphiQL console
 
@@ -742,6 +799,19 @@ swallowed and logged; it can never fail the request it was auditing.
 Read back the trail, most recent first. There is no endpoint that creates,
 edits, or deletes an audit entry — that is the point of one.
 
+**Scoped to your own actions.** The filter `user_id = <you>` is applied
+unconditionally and cannot be overridden: the optional `user_id` query
+parameter is ANDed on top, so passing another user's id returns an empty
+list rather than their history. `audit_logs` has no `organization_id` — rows
+carry a resource type string and an often-null resource id, with no reliable
+path back to an organization — so self-scoping is what closes the leak.
+While an organization has a single member this is identical in content to
+organization-scoping.
+
+One consequence, stated plainly: rows with `user_id: null` — the rejected
+unauthenticated attempts the middleware records — are not visible to anyone
+through this endpoint.
+
 Query parameters (all optional):
 
 | Parameter | Type | Default | Notes |
@@ -779,6 +849,22 @@ All errors follow:
 { "error": { "code": "NOT_FOUND", "message": "Facility 99 does not exist" } }
 ```
 Frontend should branch UI behavior on `error.code`, not on parsing `message` text.
+
+### Why `404` and never `403`
+
+A resource that exists but belongs to another organization returns `404
+NOT_FOUND` — byte-for-byte what a resource that never existed returns, same
+code and same message wording. There is deliberately no `FORBIDDEN` code.
+
+`403` would confirm that an id is real. With sequential integer ids and open
+registration, that turns every endpoint into an enumeration oracle: an
+attacker cannot read other tenants' data, but can still map how many
+organizations exist, which ids are live, and how fast they are being
+created. For a fix whose entire purpose is object-level access control,
+leaking the object graph through status codes would undercut it.
+
+The cost is debuggability — "is it missing, or am I not allowed?" is
+genuinely harder to answer. That trade is accepted knowingly.
 
 ## Status Codes Used
 `200` OK · `201` Created · `404` Not Found · `422` Validation Error · `500` Unexpected server error (should be rare — Core Agent should turn known failure cases into 404/422 with a clear `code`, not let them fall through to 500)

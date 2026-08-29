@@ -140,3 +140,97 @@ def client(db_session):
         c.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
         yield c
     app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Authorization fixtures
+#
+# Resources are owned by whoever created them (POST /organizations grants the
+# caller an OWNER membership), so `client` already acts as a tenant and most
+# tests needed no changes. What was missing was a *second* tenant: without
+# one, "unauthorized" can only be tested as "unauthenticated", which is a
+# different bug. `other_client` is that second tenant, and it is what every
+# cross-tenant test in test_authorization.py is actually about.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def current_user(client, db_session):
+    """The User row that `client` is authenticated as.
+
+    Depends on `client` so registration has definitely happened first.
+    """
+    from app.models.user import User
+
+    return (
+        db_session.query(User)
+        .filter(User.email == "fixture-user@example.com")
+        .one()
+    )
+
+
+@pytest.fixture()
+def owned_organization(client):
+    """An organization created by — and therefore owned by — `client`."""
+    response = client.post(
+        "/api/organizations",
+        json={"name": "Owned Org", "industry_type": "manufacturing"},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+@pytest.fixture()
+def other_client(client, db_session):
+    """A second authenticated client, as a different user with no membership
+    anywhere.
+
+    Depends on `client` so the get_db override (and its teardown) is owned by
+    exactly one fixture; both clients therefore share the same
+    rollback-scoped connection, which is what lets a test create data as one
+    user and immediately probe it as the other.
+    """
+    email = "other-user@example.com"
+    password = "other-pass-123"
+    with TestClient(app) as c:
+        register = c.post(
+            "/api/auth/register", json={"email": email, "password": password}
+        )
+        assert register.status_code == 201, register.text
+        token = c.post(
+            "/api/auth/token", data={"username": email, "password": password}
+        )
+        assert token.status_code == 200, token.text
+        c.headers["Authorization"] = f"Bearer {token.json()['access_token']}"
+        yield c
+
+
+@pytest.fixture()
+def other_user(other_client, db_session):
+    """The User row behind `other_client`."""
+    from app.models.user import User
+
+    return (
+        db_session.query(User).filter(User.email == "other-user@example.com").one()
+    )
+
+
+@pytest.fixture()
+def grant_membership(db_session):
+    """Insert a membership row directly, bypassing the API.
+
+    Used to prove the positive case — that access is granted by *membership*
+    and not by some incidental property of having created the row — since
+    there is no endpoint for adding a member to an existing organization.
+    """
+    from app.models.organization_member import ROLE_OWNER, OrganizationMember
+
+    def _grant(user_id: int, organization_id: int, role: str = ROLE_OWNER):
+        member = OrganizationMember(
+            user_id=user_id, organization_id=organization_id, role=role
+        )
+        db_session.add(member)
+        db_session.flush()
+        return member
+
+    return _grant

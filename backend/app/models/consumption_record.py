@@ -6,7 +6,15 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import String, Integer, Numeric, ForeignKey, DateTime, Index
+from sqlalchemy import (
+    String,
+    Integer,
+    Numeric,
+    ForeignKey,
+    ForeignKeyConstraint,
+    DateTime,
+    Index,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -43,11 +51,32 @@ class ConsumptionRecord(Base):
     )
 
     # Relationships
-    emission_source = relationship("EmissionSource", back_populates="consumption_records")
+    emission_source = relationship(
+        "EmissionSource",
+        back_populates="consumption_records",
+        # Disambiguates against the composite foreign key below, which also
+        # targets emission_sources.
+        foreign_keys=[emission_source_id],
+    )
     facility = relationship("Facility", back_populates="consumption_records")
     emission_calculations = relationship("EmissionCalculation", back_populates="consumption_record", cascade="all, delete-orphan")
 
     __table_args__ = (
+        # Tenant integrity, enforced by the database rather than by the
+        # handler alone: a record's emission source must belong to the very
+        # facility the record is filed against. Without this, an
+        # application-level check is the only thing standing between a
+        # caller and a record that joins their own facility to another
+        # organization's emission source — and any code path that writes a
+        # record without repeating that check (a script, a future endpoint,
+        # a bulk import) silently reopens the hole. Targets the composite
+        # unique constraint on emission_sources(id, facility_id).
+        ForeignKeyConstraint(
+            ["emission_source_id", "facility_id"],
+            ["emission_sources.id", "emission_sources.facility_id"],
+            name="fk_consumption_records_source_facility",
+            ondelete="CASCADE",
+        ),
         Index("ix_consumption_records_emission_source_id", "emission_source_id"),
         Index("ix_consumption_records_facility_id", "facility_id"),
     )

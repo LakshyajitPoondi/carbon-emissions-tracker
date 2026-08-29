@@ -3,7 +3,15 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Index, Enum
+from sqlalchemy import (
+    String,
+    Integer,
+    ForeignKey,
+    DateTime,
+    Index,
+    Enum,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -44,9 +52,26 @@ class EmissionSource(Base):
 
     # Relationships
     facility = relationship("Facility", back_populates="emission_sources")
-    consumption_records = relationship("ConsumptionRecord", back_populates="emission_source", cascade="all, delete-orphan")
+    # foreign_keys is required now that consumption_records has two foreign
+    # keys pointing at this table — the plain emission_source_id one and the
+    # composite (emission_source_id, facility_id) one added for tenant
+    # integrity. Without it SQLAlchemy cannot choose a join condition.
+    consumption_records = relationship(
+        "ConsumptionRecord",
+        back_populates="emission_source",
+        cascade="all, delete-orphan",
+        foreign_keys="ConsumptionRecord.emission_source_id",
+    )
 
     __table_args__ = (
+        # Redundant on its own — id is already unique — but a composite
+        # foreign key can only target a uniquely-constrained column pair,
+        # and consumption_records references (id, facility_id) to guarantee
+        # a record's source and facility belong together. See
+        # ConsumptionRecord.__table_args__.
+        UniqueConstraint(
+            "id", "facility_id", name="uq_emission_sources_id_facility_id"
+        ),
         Index("ix_emission_sources_facility_id", "facility_id"),
         Index("ix_emission_sources_source_type", "source_type"),
         Index("ix_emission_sources_source_name", "source_name"),

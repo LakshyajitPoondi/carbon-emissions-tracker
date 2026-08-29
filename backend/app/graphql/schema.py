@@ -13,10 +13,13 @@ from graphql import GraphQLError
 from sqlalchemy.orm import Session
 from strawberry.fastapi import GraphQLRouter
 
+from app.auth import get_current_user_for_graphql
 from app.database import get_db
 from app.graphql.loaders import make_emission_sources_loader, make_emissions_summary_loader
 from app.graphql.types import OrganizationType, organization_to_graphql
 from app.models.organization import Organization
+from app.models.organization_member import OrganizationMember
+from app.models.user import User
 
 
 @strawberry.type
@@ -28,7 +31,22 @@ class Query:
     )
     def organization(self, info: strawberry.Info, id: int) -> Optional[OrganizationType]:
         db: Session = info.context["db"]
-        org = db.get(Organization, id)
+        user = info.context["user"]
+        # The same membership check the REST layer applies, so GraphQL is
+        # not a second, unscoped door to the same rows. Nested fields
+        # (facilities, emissionsSummary, emissionSources) are reachable only
+        # through this resolver, so authorizing the root authorizes the
+        # subtree — see test_graphql.py's root-fields guard, which fails if
+        # a new unscoped root field is ever added.
+        org = (
+            db.query(Organization)
+            .join(
+                OrganizationMember,
+                OrganizationMember.organization_id == Organization.id,
+            )
+            .filter(Organization.id == id, OrganizationMember.user_id == user.id)
+            .first()
+        )
         if org is None:
             # Raising here (rather than returning None) is what makes this
             # show up in the response's "errors" array with a message and
@@ -44,13 +62,30 @@ class Query:
 schema = strawberry.Schema(query=Query)
 
 
-async def get_graphql_context(db: Session = Depends(get_db)) -> dict:
+async def get_graphql_context(
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_for_graphql),
+) -> dict:
     """Per-request context: the same DB session REST endpoints use (via the
     same get_db dependency, so session lifecycle/rollback behavior is
     identical), plus a fresh DataLoader instance so batching never leaks
-    cached results across requests."""
+    cached results across requests, plus the authenticated user that
+    resolvers scope their queries by.
+
+    The user is resolved with get_current_user_for_graphql, the same lenient
+    dependency the router uses, and is Optional for one specific reason:
+    Strawberry builds a context for the GET that serves the GraphiQL console
+    HTML too, not just for query execution. Requiring a token here would
+    therefore 401 the console page and undo the GraphiQL fix — which is
+    exactly what happened the first time this was written.
+
+    It is never None where it matters. Queries are always POST (the router
+    is built with allow_queries_via_get=False), and POST is gated by the
+    strict path of that same dependency, so any resolver that reads
+    context["user"] has a real user."""
     return {
         "db": db,
+        "user": user,
         "emissions_loader": make_emissions_summary_loader(db),
         "emission_sources_loader": make_emission_sources_loader(db),
     }

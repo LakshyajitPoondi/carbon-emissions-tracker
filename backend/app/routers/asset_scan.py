@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
+from app.authorization import require_facility
+from app.models.user import User
 from app.database import get_db
 from app.ml import get_yolo_model
 from app.models.emission_source import EmissionSource
@@ -31,7 +33,10 @@ async def scan_asset(
     image: UploadFile,
     db: Session = Depends(get_db),
     yolo_model=Depends(get_yolo_model),
+    current_user: User = Depends(get_current_user),
 ):
+    # Scanning is scoped to facilities the caller's organization owns.
+    require_facility(db, current_user, facility_id)
     facility = db.get(Facility, facility_id)
     if facility is None:
         return JSONResponse(

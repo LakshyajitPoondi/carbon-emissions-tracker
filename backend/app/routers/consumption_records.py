@@ -12,11 +12,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
+from app.authorization import require_emission_source, require_facility
 from app.database import get_db
 from app.models.consumption_record import ConsumptionRecord
 from app.models.emission_calculation import EmissionCalculation
-from app.models.emission_source import EmissionSource
-from app.models.facility import Facility
+from app.models.user import User
 from app.schemas.consumption_record import ConsumptionRecordCreate, ConsumptionRecordResponse
 from app.schemas.error import error_response
 from app.services.emissions import (
@@ -41,24 +41,28 @@ router = APIRouter(
 async def create_consumption_record(
     body: ConsumptionRecordCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    source = db.get(EmissionSource, body.emission_source_id)
-    if source is None:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content=error_response(
-                "NOT_FOUND",
-                f"Emission source {body.emission_source_id} does not exist",
-            ),
-        )
+    # Both the source and the facility must belong to an organization this
+    # user is a member of. Checked independently, because owning one does
+    # not imply owning the other.
+    source = require_emission_source(db, current_user, body.emission_source_id)
+    require_facility(db, current_user, body.facility_id)
 
-    facility = db.get(Facility, body.facility_id)
-    if facility is None:
+    # ...and they must belong to each other. Passing both checks above still
+    # allows pairing your own facility with a source from a different
+    # facility — including one in another organization — which would file
+    # that source's identity into your records and corrupt every downstream
+    # total. The database enforces this too (composite foreign key, see
+    # app/models/consumption_record.py); this check exists so the caller
+    # gets a documented 422 instead of an IntegrityError surfacing as a 500.
+    if source.facility_id != body.facility_id:
         return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content=error_response(
-                "NOT_FOUND",
-                f"Facility {body.facility_id} does not exist",
+                "SOURCE_FACILITY_MISMATCH",
+                f"Emission source {body.emission_source_id} belongs to facility "
+                f"{source.facility_id}, not facility {body.facility_id}",
             ),
         )
 
@@ -124,7 +128,10 @@ def list_consumption_records(
     start_date: Optional[date] = Query(None, description="Inclusive lower bound on recorded_at"),
     end_date: Optional[date] = Query(None, description="Inclusive upper bound on recorded_at"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_facility(db, current_user, facility_id)
+
     query = (
         db.query(ConsumptionRecord)
         .options(joinedload(ConsumptionRecord.emission_calculations))
