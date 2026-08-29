@@ -14,6 +14,7 @@ process genuinely dies rather than trusting that the call site exists.
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -98,6 +99,27 @@ class TestEnvironmentLoading:
         assert load_jwt_secret() == INSECURE_DEFAULT_SECRET
 
 
+# The directory the subprocess runs from, derived from this file rather than
+# hardcoded. It has to be the directory containing the `app` package, because
+# `python -c` puts the working directory on sys.path and that is how the
+# subprocess finds the module to import.
+#
+# Derived, not literal, because the same tests run in two places with
+# different layouts:
+#   in the container   /app/tests/test_jwt_secret.py            -> /app
+#   on a CI runner     <workspace>/backend/tests/test_jwt...py  -> <workspace>/backend
+# A hardcoded "/app" was correct only in the container, and every test in
+# TestStartupActuallyFails failed on GitHub Actions with FileNotFoundError.
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+# Fail loudly here rather than through five confusing subprocess errors if
+# this file is ever moved to a different depth in the tree.
+assert (BACKEND_DIR / "app").is_dir(), (
+    f"expected {BACKEND_DIR} to contain the 'app' package; "
+    "has this test file moved relative to backend/?"
+)
+
+
 def _import_auth_with(env_overrides: dict[str, str | None]) -> subprocess.CompletedProcess:
     """Import app.auth in a fresh process with a doctored environment.
 
@@ -117,7 +139,7 @@ def _import_auth_with(env_overrides: dict[str, str | None]) -> subprocess.Comple
         env=env,
         capture_output=True,
         text=True,
-        cwd="/app",
+        cwd=BACKEND_DIR,
         timeout=60,
     )
 
@@ -127,7 +149,20 @@ class TestStartupActuallyFails:
     rather than a helper function nobody calls."""
 
     def test_process_dies_with_no_secret_and_no_flag(self):
-        result = _import_auth_with({"JWT_SECRET_KEY": None, DEV_ESCAPE_HATCH_ENV: None})
+        # Empty string rather than removing the variable, deliberately.
+        #
+        # app/database.py calls load_dotenv(), which searches upward from
+        # backend/app/ for a .env file. There is none in the container or on
+        # CI, but a developer running pytest on their host has one at the
+        # repo root — and dotenv would fill a *deleted* JWT_SECRET_KEY with
+        # the real value, quietly turning this into a test that the app
+        # starts fine. load_dotenv defaults to override=False and skips any
+        # key already present in os.environ, and an empty value still counts
+        # as present, so this cannot be back-filled.
+        #
+        # It exercises the same branch either way: validate_jwt_secret treats
+        # "" and None identically via `if not secret`.
+        result = _import_auth_with({"JWT_SECRET_KEY": "", DEV_ESCAPE_HATCH_ENV: None})
         assert result.returncode != 0
         assert "InsecureJWTSecretError" in result.stderr
 
