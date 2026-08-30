@@ -34,8 +34,22 @@ spec:
           imagePullPolicy: IfNotPresent
           # Same image as the backend, different entrypoint — matching how
           # docker-compose.yml runs this from the same build.
+          # Same flags as docker-compose.yml and the Railway start command —
+          # see Docs/deployment-notes.md. This cluster has memory to spare,
+          # so the concurrency cap is not load-bearing here; it is in step
+          # so that the three places this command is written down cannot
+          # drift apart.
           command:
-            ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
+            - celery
+            - -A
+            - app.celery_app
+            - worker
+            - --loglevel=info
+            - --concurrency=2
+            - --max-tasks-per-child=100
+            - --without-gossip
+            - --without-mingle
+            - --without-heartbeat
           envFrom:
             - configMapRef:
                 name: carbon-config

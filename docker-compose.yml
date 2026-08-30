@@ -92,7 +92,32 @@ services:
       dockerfile: Dockerfile
     container_name: carbon_celery_worker
     restart: unless-stopped
-    command: celery -A app.celery_app worker --loglevel=info
+    # Flags mirror what production (Railway) must run — see
+    # Docs/deployment-notes.md. Kept in step here so local and deployed
+    # workers cannot silently diverge, even though a dev machine has plenty
+    # of memory to absorb the defaults.
+    #
+    # --concurrency=2 is the load-bearing one. Celery's prefork pool
+    # defaults to the CPU count *the container can see*, which is the host's
+    # core count, not the memory tier you are paying for: on a 16-core host
+    # that forks 16 children and measured 704.6 MB of cgroup memory, against
+    # a 500 MB limit, before a single task runs. At 2 it measures 142.8 MB.
+    command:
+      - celery
+      - -A
+      - app.celery_app
+      - worker
+      - --loglevel=info
+      - --concurrency=2
+      # Recycle a child after 100 tasks so a slow leak can never accumulate
+      # into the same ceiling.
+      - --max-tasks-per-child=100
+      # Single-worker deployment: nothing to gossip with, no other node to
+      # sync clocks against, and no need to broadcast heartbeats. Each is
+      # pure overhead here.
+      - --without-gossip
+      - --without-mingle
+      - --without-heartbeat
     env_file:
       - .env
     depends_on:
