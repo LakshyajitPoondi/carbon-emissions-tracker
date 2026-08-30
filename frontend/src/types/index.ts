@@ -4,6 +4,7 @@ export * from "./emissionSource";
 export * from "./emissionFactor";
 export * from "./consumptionRecord";
 export * from "./emissionsSummary";
+export * from "./organizationOverview";
 export * from "./report";
 export * from "./error";
 export * from "./user";

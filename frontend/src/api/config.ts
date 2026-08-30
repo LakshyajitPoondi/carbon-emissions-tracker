@@ -12,3 +12,7 @@ export const API_BASE_URL: string =
  * the root, not under /api — derived from API_BASE_URL rather than a
  * separate env var so the two never drift apart. */
 export const WS_BASE_URL: string = API_BASE_URL.replace(/^http/, "ws").replace(/\/api\/?$/, "");
+
+/** GraphQL sits at the root too, not under /api — same reasoning and same
+ * derivation as WS_BASE_URL, so one env var still configures everything. */
+export const GRAPHQL_URL: string = `${API_BASE_URL.replace(/\/api\/?$/, "")}/graphql`;

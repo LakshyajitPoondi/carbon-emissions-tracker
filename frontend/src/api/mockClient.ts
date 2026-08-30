@@ -506,6 +506,41 @@ export const mockClient: ApiClient = {
     return summary;
   },
 
+  async getOrganizationOverview(organizationId: number, filters: EmissionsSummaryFilters) {
+    await delay();
+    const org = requireOrganization(organizationId);
+    // Built from the same sumBySourceType() the mock's REST summary uses, so
+    // the overview page and the dashboard cannot disagree in mock mode for
+    // the same reason they cannot disagree against the real backend: one
+    // calculation, two views onto it.
+    return {
+      id: org.id,
+      name: org.name,
+      industryType: org.industry_type,
+      facilities: facilities
+        .filter((f) => f.organization_id === organizationId)
+        .map((f) => {
+          const bySourceType = sumBySourceType(f.id, filters.start_date, filters.end_date);
+          const total = SOURCE_TYPES.reduce(
+            (sum, type) => sum + parseFloat(bySourceType[type]),
+            0,
+          );
+          return {
+            id: f.id,
+            name: f.name,
+            location: f.location,
+            emissionsSummary: {
+              facilityId: f.id,
+              periodStart: filters.start_date,
+              periodEnd: filters.end_date,
+              totalEmissionsKgCo2e: total.toFixed(2),
+              bySourceType,
+            },
+          };
+        }),
+    };
+  },
+
   async generateReport(req: ReportGenerateRequest) {
     await delay();
     requireOrganization(req.organization_id);

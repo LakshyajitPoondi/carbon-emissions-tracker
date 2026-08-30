@@ -6,6 +6,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { AuthPage } from "./pages/AuthPage";
 import { ConsumptionPage } from "./pages/ConsumptionPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { OrganizationOverviewPage } from "./pages/OrganizationOverviewPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SetupPage } from "./pages/SetupPage";
 
@@ -21,6 +22,7 @@ export default function App() {
               <Route path="/" element={<SetupPage />} />
               <Route path="/consumption" element={<ConsumptionPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/overview" element={<OrganizationOverviewPage />} />
               <Route path="/reports" element={<ReportsPage />} />
             </Route>
           </Routes>

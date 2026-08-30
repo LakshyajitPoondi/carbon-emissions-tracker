@@ -8,8 +8,8 @@ import type {
 } from "./ApiClient";
 import { ApiError } from "./ApiClient";
 import { clearToken, getToken } from "./authToken";
-import { API_BASE_URL } from "./config";
-import type { ApiErrorBody } from "../types";
+import { API_BASE_URL, GRAPHQL_URL } from "./config";
+import type { ApiErrorBody, OrganizationOverview } from "../types";
 
 /** Fired whenever a request comes back 401 — AuthContext listens for this to
  * clear its state and send the user back to /login, from anywhere in the app. */
@@ -78,6 +78,102 @@ function requestMultipart<T>(path: string, formData: FormData): Promise<T> {
   });
 }
 
+/** The one GraphQL query this app makes. Declared as a constant so the shape
+ * stays next to the type it fills (see types/organizationOverview.ts).
+ *
+ * Field names and argument types come from introspecting the live schema:
+ * `organization` takes an Int (not a string), and `emissionsSummary`
+ * *requires* startDate and endDate — omitting them is a validation error,
+ * not a defaulted whole-history summary. */
+const ORGANIZATION_OVERVIEW_QUERY = `
+  query OrganizationOverview($id: Int!, $startDate: Date!, $endDate: Date!) {
+    organization(id: $id) {
+      id
+      name
+      industryType
+      facilities {
+        id
+        name
+        location
+        emissionsSummary(startDate: $startDate, endDate: $endDate) {
+          facilityId
+          periodStart
+          periodEnd
+          totalEmissionsKgCo2e
+          bySourceType
+        }
+      }
+    }
+  }
+`;
+
+/** POST a GraphQL operation, reusing the REST client's auth and 401 handling.
+ *
+ * Deliberately hand-rolled rather than pulling in Apollo/urql: one query on
+ * one page does not justify a client library, a normalized cache, or the
+ * bundle that comes with them.
+ *
+ * Two things GraphQL does differently from REST, both handled here so
+ * callers can just try/catch like any other client method:
+ *  - it lives at /graphql, outside the /api prefix (hence GRAPHQL_URL);
+ *  - a resolver failure comes back as HTTP 200 with an `errors` array, so a
+ *    "not found" would otherwise look like success with null data. That is
+ *    translated into the same ApiError the REST paths throw, carrying the
+ *    resolver's extensions.code (e.g. NOT_FOUND) so ErrorBanner can branch
+ *    on code exactly as it does elsewhere.
+ */
+async function graphqlRequest<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+  const token = getToken();
+
+  let res: Response;
+  try {
+    res = await fetch(GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+  } catch {
+    throw new ApiError("NETWORK_ERROR", "Could not reach the server. Is the backend running?", 0);
+  }
+
+  const body: unknown = await res.json().catch(() => null);
+
+  // Auth is enforced before execution, so a bad token is a transport-level
+  // 401 with the standard REST error shape — same handling as rawRequest,
+  // including the global event that logs the user out everywhere.
+  if (!res.ok) {
+    const errorBody = body as ApiErrorBody | null;
+    if (res.status === 401) {
+      clearToken();
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
+    throw new ApiError(
+      errorBody?.error?.code ?? "GRAPHQL_ERROR",
+      errorBody?.error?.message ?? `GraphQL request failed with status ${res.status}`,
+      res.status,
+    );
+  }
+
+  const payload = body as {
+    data?: T | null;
+    errors?: { message: string; extensions?: { code?: string } }[];
+  } | null;
+
+  if (payload?.errors?.length) {
+    const first = payload.errors[0];
+    throw new ApiError(first.extensions?.code ?? "GRAPHQL_ERROR", first.message, res.status);
+  }
+
+  if (payload?.data == null) {
+    throw new ApiError("GRAPHQL_ERROR", "The server returned no data for this query.", res.status);
+  }
+
+  return payload.data;
+}
+
 export const realClient: ApiClient = {
   register: (req) => request("/auth/register", { method: "POST", body: JSON.stringify(req) }),
 
@@ -144,6 +240,20 @@ export const realClient: ApiClient = {
         end_date: filters.end_date,
       })}`,
     ),
+
+  async getOrganizationOverview(organizationId, filters) {
+    const data = await graphqlRequest<{ organization: OrganizationOverview | null }>(
+      ORGANIZATION_OVERVIEW_QUERY,
+      { id: organizationId, startDate: filters.start_date, endDate: filters.end_date },
+    );
+    if (data.organization === null) {
+      // Belt and braces: the resolver raises NOT_FOUND rather than returning
+      // null, so this is unreachable today — but a null here would otherwise
+      // surface as a blank page instead of an error state.
+      throw new ApiError("NOT_FOUND", `Organization ${organizationId} does not exist`, 200);
+    }
+    return data.organization;
+  },
 
   generateReport: (req) =>
     request("/reports/generate", { method: "POST", body: JSON.stringify(req) }),

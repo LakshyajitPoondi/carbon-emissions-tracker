@@ -17,6 +17,7 @@ import type {
   LoginRequest,
   Organization,
   OrganizationCreateRequest,
+  OrganizationOverview,
   RegisterRequest,
   Report,
   ReportGenerateRequest,
@@ -87,6 +88,22 @@ export interface ApiClient {
   listConsumptionRecords(filters: ConsumptionRecordFilters): Promise<ConsumptionRecord[]>;
 
   getEmissionsSummary(facilityId: number, filters: EmissionsSummaryFilters): Promise<EmissionsSummary>;
+
+  /**
+   * One organization with every facility and each facility's emissions
+   * summary, in a single round trip, via the read-only GraphQL query.
+   *
+   * This is the same data the REST endpoints expose — the backend resolves
+   * `emissionsSummary` through the identical service function that
+   * `GET /facilities/{id}/emissions-summary` uses, so the numbers agree by
+   * construction. The difference is the trip count: REST needs
+   * 1 + 1 + N calls (organization, facilities, then a summary per facility),
+   * this needs one.
+   */
+  getOrganizationOverview(
+    organizationId: number,
+    filters: EmissionsSummaryFilters,
+  ): Promise<OrganizationOverview>;
 
   generateReport(req: ReportGenerateRequest): Promise<Report>;
   getReport(id: number): Promise<Report>;
