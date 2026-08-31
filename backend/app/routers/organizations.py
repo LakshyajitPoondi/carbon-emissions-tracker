@@ -19,6 +19,7 @@ from app.models.organization import Organization
 from app.models.organization_member import ROLE_OWNER, OrganizationMember
 from app.models.user import User
 from app.schemas.organization import OrganizationCreate, OrganizationResponse
+from app.services.memberships import generate_unique_join_code
 
 router = APIRouter(
     prefix="/organizations",
@@ -62,6 +63,7 @@ def create_organization(
     org = Organization(
         name=body.name,
         industry_type=body.industry_type,
+        join_code=generate_unique_join_code(db),
     )
     db.add(org)
     db.flush()  # assigns org.id without ending the transaction

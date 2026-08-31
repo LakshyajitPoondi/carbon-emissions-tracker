@@ -9,6 +9,7 @@ type IconName =
   | "consumption"
   | "dashboard"
   | "overview"
+  | "members"
   | "products"
   | "reports"
   | "account";
@@ -19,7 +20,10 @@ const NAV_SECTIONS: Array<{
 }> = [
   {
     label: "Workspace",
-    links: [{ to: "/", label: "Setup", icon: "setup", end: true }],
+    links: [
+      { to: "/", label: "Setup", icon: "setup", end: true },
+      { to: "/members", label: "Members", icon: "members" },
+    ],
   },
   {
     label: "Tracking",
@@ -58,6 +62,13 @@ function NavIcon({ name }: { name: IconName }) {
       <>
         <path d="M4 20V9l8-5 8 5v11" />
         <path d="M9 20v-6h6v6M8 10h.01M12 10h.01M16 10h.01" />
+      </>
+    ),
+    members: (
+      <>
+        <circle cx="9" cy="8" r="3" />
+        <circle cx="17" cy="10" r="2" />
+        <path d="M3 20c0-4 2.5-6 6-6s6 2 6 6M15 15c3 0 5 1.7 5 5" />
       </>
     ),
     products: (
@@ -164,7 +175,9 @@ export function AppShell() {
               {NAV_SECTIONS.map((section) => (
                 <div className="app-sidebar__section" key={section.label}>
                   <span className="app-sidebar__section-label">{section.label}</span>
-                  {section.links.map((link) => (
+                  {section.links
+                    .filter((link) => link.to !== "/members" || organization !== null)
+                    .map((link) => (
                     <NavLink
                       key={link.to}
                       to={link.to}

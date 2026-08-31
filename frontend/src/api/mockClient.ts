@@ -33,8 +33,14 @@ import type {
   Facility,
   FacilityCreateRequest,
   LoginRequest,
+  JoinCode,
+  JoinRequest,
+  JoinRequestApprovalRequest,
+  JoinRequestCreateRequest,
+  MemberRoleUpdateRequest,
   Organization,
   OrganizationCreateRequest,
+  OrganizationMember,
   Product,
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -78,6 +84,7 @@ const nextId = {
   calculation: 1,
   report: 1,
   product: 2,
+  joinRequest: 1,
 };
 
 const organizations: Organization[] = [
@@ -205,6 +212,34 @@ const users: MockUser[] = [
   { id: 1, email: "demo@example.com", password: "demopassword123", created_at: "2026-08-01T08:00:00Z" },
 ];
 let nextUserId = 2;
+let currentUserId = 1;
+
+interface MockMembership {
+  user_id: number;
+  organization_id: number;
+  role: Organization["role"];
+  joined_at: string;
+}
+
+const memberships: MockMembership[] = [
+  { user_id: 1, organization_id: 1, role: "OWNER", joined_at: "2026-08-01T09:00:00Z" },
+];
+
+const joinCodes = new Map<number, string>([
+  [1, "ORG-DEM7-2026-ACM3-0001-C0D3-X7K9"],
+]);
+
+const joinRequests: JoinRequest[] = [];
+
+function generateJoinCode(): string {
+  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const groups = Array.from({ length: 6 }, (_, group) =>
+    Array.from({ length: 4 }, (_, offset) => alphabet[bytes[group * 4 + offset] % alphabet.length]).join(""),
+  );
+  return `ORG-${groups.join("-")}`;
+}
 
 function seedConsumptionRecord(
   emissionSourceId: number,
@@ -240,7 +275,20 @@ function seedConsumptionRecord(
 
 function requireOrganization(id: number): Organization {
   const org = organizations.find((o) => o.id === id);
-  if (!org) throw new ApiError("NOT_FOUND", `Organization ${id} does not exist`, 404);
+  const membership = memberships.find(
+    (item) => item.organization_id === id && item.user_id === currentUserId,
+  );
+  if (!org || !membership) {
+    throw new ApiError("NOT_FOUND", `Organization ${id} does not exist`, 404);
+  }
+  return { ...org, role: membership.role };
+}
+
+function requireOrganizationWrite(id: number): Organization {
+  const org = requireOrganization(id);
+  if (org.role !== "OWNER" && org.role !== "ADMIN") {
+    throw new ApiError("NOT_FOUND", `Organization ${id} does not exist`, 404);
+  }
   return org;
 }
 
@@ -359,6 +407,7 @@ export const mockClient: ApiClient = {
     if (!user) {
       throw new ApiError("INVALID_CREDENTIALS", "Incorrect email or password", 401);
     }
+    currentUserId = user.id;
     return { access_token: `mock-token-${user.id}-${Date.now()}`, token_type: "bearer" };
   },
 
@@ -375,6 +424,13 @@ export const mockClient: ApiClient = {
       role: "OWNER",
     };
     organizations.push(org);
+    memberships.push({
+      user_id: currentUserId,
+      organization_id: org.id,
+      role: "OWNER",
+      joined_at: org.created_at,
+    });
+    joinCodes.set(org.id, generateJoinCode());
     return org;
   },
 
@@ -388,9 +444,194 @@ export const mockClient: ApiClient = {
     // The mock has a single implicit tenant, so every organization it holds
     // belongs to the caller. Sorted by name to match the ordering the real
     // endpoint guarantees, so the picker looks the same in both modes.
-    return [...organizations].sort(
+    return memberships
+      .filter((membership) => membership.user_id === currentUserId)
+      .map((membership) => {
+        const organization = organizations.find((item) => item.id === membership.organization_id)!;
+        return { ...organization, role: membership.role };
+      })
+      .sort(
       (a, b) => a.name.localeCompare(b.name) || a.id - b.id,
     );
+  },
+
+  async getOrganizationJoinCode(organizationId: number): Promise<JoinCode> {
+    await delay();
+    requireOrganizationWrite(organizationId);
+    return { organization_id: organizationId, join_code: joinCodes.get(organizationId)! };
+  },
+
+  async regenerateOrganizationJoinCode(organizationId: number): Promise<JoinCode> {
+    await delay();
+    requireOrganizationWrite(organizationId);
+    const join_code = generateJoinCode();
+    joinCodes.set(organizationId, join_code);
+    return { organization_id: organizationId, join_code };
+  },
+
+  async submitJoinRequest(req: JoinRequestCreateRequest): Promise<JoinRequest> {
+    await delay();
+    const normalized = req.join_code.trim().toUpperCase();
+    const organizationId = Array.from(joinCodes.entries()).find(
+      ([, code]) => code === normalized,
+    )?.[0];
+    const organization = organizations.find((item) => item.id === organizationId);
+    if (!organization) {
+      throw new ApiError("NOT_FOUND", "Organization join code does not exist", 404);
+    }
+    if (
+      memberships.some(
+        (item) => item.user_id === currentUserId && item.organization_id === organization.id,
+      )
+    ) {
+      throw new ApiError(
+        "ALREADY_ORGANIZATION_MEMBER",
+        "You are already a member of this organization",
+        422,
+      );
+    }
+    if (
+      joinRequests.some(
+        (item) =>
+          item.user_id === currentUserId &&
+          item.organization_id === organization.id &&
+          item.status === "PENDING",
+      )
+    ) {
+      throw new ApiError(
+        "JOIN_REQUEST_ALREADY_PENDING",
+        "A join request for this organization is already pending",
+        422,
+      );
+    }
+    const user = users.find((item) => item.id === currentUserId)!;
+    const request: JoinRequest = {
+      id: nextId.joinRequest++,
+      organization_id: organization.id,
+      organization_name: organization.name,
+      user_id: user.id,
+      user_email: user.email,
+      status: "PENDING",
+      requested_at: nowIso(),
+      decided_at: null,
+      decided_by: null,
+    };
+    joinRequests.push(request);
+    return { ...request };
+  },
+
+  async listMyPendingJoinRequests(): Promise<JoinRequest[]> {
+    await delay();
+    return joinRequests
+      .filter((item) => item.user_id === currentUserId && item.status === "PENDING")
+      .map((item) => ({ ...item }));
+  },
+
+  async listPendingJoinRequests(organizationId: number): Promise<JoinRequest[]> {
+    await delay();
+    requireOrganizationWrite(organizationId);
+    return joinRequests
+      .filter((item) => item.organization_id === organizationId && item.status === "PENDING")
+      .map((item) => ({ ...item }));
+  },
+
+  async approveJoinRequest(
+    organizationId: number,
+    requestId: number,
+    req: JoinRequestApprovalRequest,
+  ): Promise<JoinRequest> {
+    await delay();
+    requireOrganizationWrite(organizationId);
+    const request = joinRequests.find(
+      (item) => item.id === requestId && item.organization_id === organizationId,
+    );
+    if (!request) throw new ApiError("NOT_FOUND", `Join request ${requestId} does not exist`, 404);
+    if (request.status !== "PENDING") {
+      throw new ApiError("JOIN_REQUEST_ALREADY_DECIDED", "This join request has already been decided", 422);
+    }
+    memberships.push({
+      user_id: request.user_id,
+      organization_id: organizationId,
+      role: req.role,
+      joined_at: nowIso(),
+    });
+    request.status = "APPROVED";
+    request.decided_at = nowIso();
+    request.decided_by = currentUserId;
+    return { ...request };
+  },
+
+  async rejectJoinRequest(organizationId: number, requestId: number): Promise<JoinRequest> {
+    await delay();
+    requireOrganizationWrite(organizationId);
+    const request = joinRequests.find(
+      (item) => item.id === requestId && item.organization_id === organizationId,
+    );
+    if (!request) throw new ApiError("NOT_FOUND", `Join request ${requestId} does not exist`, 404);
+    if (request.status !== "PENDING") {
+      throw new ApiError("JOIN_REQUEST_ALREADY_DECIDED", "This join request has already been decided", 422);
+    }
+    request.status = "REJECTED";
+    request.decided_at = nowIso();
+    request.decided_by = currentUserId;
+    return { ...request };
+  },
+
+  async listOrganizationMembers(organizationId: number): Promise<OrganizationMember[]> {
+    await delay();
+    requireOrganization(organizationId);
+    return memberships
+      .filter((item) => item.organization_id === organizationId)
+      .map((item) => ({
+        user_id: item.user_id,
+        email: users.find((user) => user.id === item.user_id)!.email,
+        role: item.role,
+        joined_at: item.joined_at,
+      }))
+      .sort((a, b) => a.email.localeCompare(b.email) || a.user_id - b.user_id);
+  },
+
+  async updateOrganizationMemberRole(
+    organizationId: number,
+    userId: number,
+    req: MemberRoleUpdateRequest,
+  ): Promise<OrganizationMember> {
+    await delay();
+    requireOrganizationWrite(organizationId);
+    const member = memberships.find(
+      (item) => item.organization_id === organizationId && item.user_id === userId,
+    );
+    if (!member) throw new ApiError("NOT_FOUND", `Organization member ${userId} does not exist`, 404);
+    const owners = memberships.filter(
+      (item) => item.organization_id === organizationId && item.role === "OWNER",
+    );
+    if (member.role === "OWNER" && req.role !== "OWNER" && owners.length === 1) {
+      throw new ApiError("LAST_OWNER_REQUIRED", "An organization must have at least one OWNER", 422);
+    }
+    member.role = req.role;
+    return {
+      user_id: member.user_id,
+      email: users.find((user) => user.id === member.user_id)!.email,
+      role: member.role,
+      joined_at: member.joined_at,
+    };
+  },
+
+  async removeOrganizationMember(organizationId: number, userId: number): Promise<void> {
+    await delay();
+    requireOrganizationWrite(organizationId);
+    const index = memberships.findIndex(
+      (item) => item.organization_id === organizationId && item.user_id === userId,
+    );
+    if (index < 0) throw new ApiError("NOT_FOUND", `Organization member ${userId} does not exist`, 404);
+    const member = memberships[index];
+    const owners = memberships.filter(
+      (item) => item.organization_id === organizationId && item.role === "OWNER",
+    );
+    if (member.role === "OWNER" && owners.length === 1) {
+      throw new ApiError("LAST_OWNER_REQUIRED", "An organization must have at least one OWNER", 422);
+    }
+    memberships.splice(index, 1);
   },
 
   async createFacility(req: FacilityCreateRequest) {

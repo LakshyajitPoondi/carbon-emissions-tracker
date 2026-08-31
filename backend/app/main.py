@@ -23,6 +23,7 @@ from app.routers import (
     emission_factors,
     emission_sources,
     facilities,
+    memberships,
     organizations,
     products,
     reports,
@@ -162,6 +163,7 @@ async def http_exception_handler(request, exc: HTTPException):
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(organizations.router, prefix="/api")
+app.include_router(memberships.router, prefix="/api")
 app.include_router(facilities.router, prefix="/api")
 app.include_router(asset_scan.router, prefix="/api")
 app.include_router(emission_sources.router, prefix="/api")

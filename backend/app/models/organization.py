@@ -14,6 +14,10 @@ class Organization(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     industry_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Opaque, shareable secret used only to request membership. It is kept
+    # out of normal organization responses and exposed through a WRITE-gated
+    # endpoint so ordinary members cannot retrieve it.
+    join_code: Mapped[str] = mapped_column(String(40), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -34,6 +38,7 @@ class Organization(Base):
     __table_args__ = (
         Index("ix_organizations_name", "name"),
         Index("ix_organizations_industry_type", "industry_type"),
+        Index("ix_organizations_join_code", "join_code", unique=True),
     )
 
     def __repr__(self) -> str:

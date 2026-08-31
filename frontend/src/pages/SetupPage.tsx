@@ -4,7 +4,7 @@ import { apiClient } from "../api";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
-import type { EmissionSource, Facility, SourceType } from "../types";
+import type { EmissionSource, Facility, JoinRequest, SourceType } from "../types";
 import { hasOrganizationWriteAccess } from "../utils/organizationRoles";
 import { GHG_SCOPE_SOURCE_TYPES, sourceTypeDisplayLabel } from "../utils/sourceTypePresentation";
 
@@ -62,9 +62,26 @@ function OrganizationSection() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<unknown>(null);
 
-  const [lookupId, setLookupId] = useState("");
-  const [lookingUp, setLookingUp] = useState(false);
-  const [lookupError, setLookupError] = useState<unknown>(null);
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<unknown>(null);
+  const [pendingRequests, setPendingRequests] = useState<JoinRequest[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(true);
+
+  const loadPendingRequests = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      setPendingRequests(await apiClient.listMyPendingJoinRequests());
+    } catch (err) {
+      setJoinError(err);
+    } finally {
+      setPendingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPendingRequests();
+  }, [loadPendingRequests]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -83,25 +100,24 @@ function OrganizationSection() {
     }
   }
 
-  async function handleLookup(e: FormEvent) {
+  async function handleJoin(e: FormEvent) {
     e.preventDefault();
-    const id = Number(lookupId);
-    if (!Number.isFinite(id) || id <= 0) {
-      setLookupError(new Error("Enter a valid organization ID."));
-      return;
-    }
-    setLookingUp(true);
-    setLookupError(null);
+    setJoining(true);
+    setJoinError(null);
     try {
-      const org = await apiClient.getOrganization(id);
-      rememberOrganization(org);
-      onSelect(org);
-      setLookupId("");
+      const request = await apiClient.submitJoinRequest({ join_code: joinCode });
+      setPendingRequests((current) => [request, ...current]);
+      setJoinCode("");
     } catch (err) {
-      setLookupError(err);
+      setJoinError(err);
     } finally {
-      setLookingUp(false);
+      setJoining(false);
     }
+  }
+
+  async function checkMembershipStatus() {
+    revalidateOrganizations();
+    await loadPendingRequests();
   }
 
   return (
@@ -118,8 +134,28 @@ function OrganizationSection() {
 
       {organizationsStatus === "ready" && known.length === 0 && (
         <p className="empty-state">
-          You don&rsquo;t have any organizations yet — create one below to get started.
+          You don&rsquo;t have any organizations yet. Create one or request to join an existing
+          organization below.
         </p>
+      )}
+
+      {!pendingLoading && pendingRequests.length > 0 && (
+        <div className="result-panel">
+          <h3>Pending approval</h3>
+          <p className="result-panel__meta">
+            Your request grants no access until an OWNER or ADMIN approves it.
+          </p>
+          <ul className="plain-list">
+            {pendingRequests.map((request) => (
+              <li key={request.id}>
+                <strong>{request.organization_name}</strong> — requested {new Date(request.requested_at).toLocaleString()}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => void checkMembershipStatus()}>
+            Check approval status
+          </button>
+        </div>
       )}
 
       {known.length > 0 && (
@@ -172,23 +208,27 @@ function OrganizationSection() {
           {createError !== null && <ErrorBanner error={createError} />}
         </form>
 
-        <form className="card__col" onSubmit={handleLookup}>
-          <h3>Load existing by ID</h3>
+        <form className="card__col" onSubmit={handleJoin}>
+          <h3>Join an organization</h3>
+          <p className="result-panel__meta">
+            Ask an OWNER or ADMIN for their organization&rsquo;s private join code. They will choose
+            your role when approving the request.
+          </p>
           <div className="field">
-            <label htmlFor="org-lookup">Organization ID</label>
+            <label htmlFor="org-join-code">Join code</label>
             <input
-              id="org-lookup"
-              type="number"
-              min={1}
-              value={lookupId}
-              onChange={(e) => setLookupId(e.target.value)}
-              placeholder="1"
+              id="org-join-code"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              required
+              autoComplete="off"
+              placeholder="ORG-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
             />
           </div>
-          <button type="submit" disabled={lookingUp}>
-            {lookingUp ? "Looking up…" : "Load organization"}
+          <button type="submit" disabled={joining}>
+            {joining ? "Submitting…" : "Request to join"}
           </button>
-          {lookupError !== null && <ErrorBanner error={lookupError} />}
+          {joinError !== null && <ErrorBanner error={joinError} />}
         </form>
       </div>
 

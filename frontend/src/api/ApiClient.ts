@@ -18,6 +18,12 @@ import type {
   LoginRequest,
   Organization,
   OrganizationCreateRequest,
+  OrganizationMember,
+  JoinCode,
+  JoinRequest,
+  JoinRequestApprovalRequest,
+  JoinRequestCreateRequest,
+  MemberRoleUpdateRequest,
   OrganizationOverview,
   Product,
   ProductCreateRequest,
@@ -76,6 +82,25 @@ export interface ApiClient {
    * browser, including one with empty storage.
    */
   listOrganizations(): Promise<Organization[]>;
+
+  getOrganizationJoinCode(organizationId: number): Promise<JoinCode>;
+  regenerateOrganizationJoinCode(organizationId: number): Promise<JoinCode>;
+  submitJoinRequest(req: JoinRequestCreateRequest): Promise<JoinRequest>;
+  listMyPendingJoinRequests(): Promise<JoinRequest[]>;
+  listPendingJoinRequests(organizationId: number): Promise<JoinRequest[]>;
+  approveJoinRequest(
+    organizationId: number,
+    requestId: number,
+    req: JoinRequestApprovalRequest,
+  ): Promise<JoinRequest>;
+  rejectJoinRequest(organizationId: number, requestId: number): Promise<JoinRequest>;
+  listOrganizationMembers(organizationId: number): Promise<OrganizationMember[]>;
+  updateOrganizationMemberRole(
+    organizationId: number,
+    userId: number,
+    req: MemberRoleUpdateRequest,
+  ): Promise<OrganizationMember>;
+  removeOrganizationMember(organizationId: number, userId: number): Promise<void>;
 
   createFacility(req: FacilityCreateRequest): Promise<Facility>;
   listFacilities(organizationId: number): Promise<Facility[]>;

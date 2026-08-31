@@ -28,10 +28,14 @@ export function AuthPage() {
     try {
       if (mode === "login") {
         await login(email, password);
+        navigate(redirectTo, { replace: true });
       } else {
         await register(email, password);
+        // A new account has no membership yet. Always land on Setup so the
+        // create-or-join choice is visible instead of returning to a data
+        // page that cannot work without an organization.
+        navigate("/", { replace: true });
       }
-      navigate(redirectTo, { replace: true });
     } catch (err) {
       setError(err);
     }

@@ -7,6 +7,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { ConsumptionPage } from "./pages/ConsumptionPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { OrganizationOverviewPage } from "./pages/OrganizationOverviewPage";
+import { MembersPage } from "./pages/MembersPage";
 import { ProductLibraryPage } from "./pages/ProductLibraryPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SetupPage } from "./pages/SetupPage";
@@ -24,6 +25,7 @@ export default function App() {
                 <Route path="/consumption" element={<ConsumptionPage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/overview" element={<OrganizationOverviewPage />} />
+                <Route path="/members" element={<MembersPage />} />
                 <Route path="/products" element={<ProductLibraryPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
               </Route>

@@ -106,14 +106,19 @@ new organization and becomes its `OWNER`, regardless of their role in other
 organizations.
 
 **How membership is created.** `POST /organizations` makes the calling user
-an `OWNER` of the organization it creates, in the same transaction. That is
-the *only* way a membership comes into existence in this version. In
-particular:
+an `OWNER` of the organization it creates, in the same transaction. A user
+may also submit an organization's opaque join code; this creates a pending
+request and grants no access until an `OWNER` or `ADMIN` approves it and
+chooses the role. In particular:
 
 - Registering an account grants no membership. A new user belongs to nothing
   and sees nothing until they create an organization.
-- There is no endpoint for adding another user to an existing organization
-  yet. The schema supports it; the API deliberately does not expose it.
+- Organization names and identifiers remain non-enumerable to non-members.
+  Join codes are shared out of band and an invalid code returns a masked
+  `404 NOT_FOUND`.
+- `OWNER` and `ADMIN` may approve or reject join requests and subsequently
+  change or remove memberships. An organization must always retain at least
+  one `OWNER`.
 
 **What membership gates.** Every organization-owned resource, reached either
 directly (`organizations`, `products`, `reports`) or by walking foreign keys
@@ -210,6 +215,126 @@ not a member of it** — the two are indistinguishable by design.
 
 For every organization response, `role` is the authenticated caller's role
 in that organization, not a property of the organization itself.
+
+### GET /organizations/{id}/join-code
+
+Return the opaque join code. Requires `WRITE` access (`OWNER` or `ADMIN`);
+an inaccessible organization is the same masked `404` as an absent one.
+
+Response `200`:
+```json
+{ "organization_id": 1, "join_code": "ORG-7K9M-2P4R-W8XY-3D6F-A1BC-H5JN" }
+```
+
+### POST /organizations/{id}/join-code/regenerate
+
+Immediately invalidate the old join code and return a new one. Existing
+pending requests are unaffected because they are already bound to the
+organization. Requires `WRITE` access.
+
+Response `200`: same shape as `GET /organizations/{id}/join-code`.
+
+### POST /join-requests
+
+Submit a membership request. This requires authentication but no existing
+organization membership. Codes are case-insensitive and surrounding
+whitespace is ignored.
+
+Request:
+```json
+{ "join_code": "ORG-7K9M-2P4R-W8XY-3D6F-A1BC-H5JN" }
+```
+
+Response `201`:
+```json
+{
+  "id": 12,
+  "organization_id": 1,
+  "organization_name": "Acme Manufacturing",
+  "user_id": 8,
+  "user_email": "new.user@example.com",
+  "status": "PENDING",
+  "requested_at": "2026-08-31T10:00:00Z",
+  "decided_at": null,
+  "decided_by": null
+}
+```
+
+Malformed and unknown codes both return `404 NOT_FOUND` with the message
+`Organization join code does not exist`. An existing membership returns
+`422 ALREADY_ORGANIZATION_MEMBER`; a duplicate pending request returns
+`422 JOIN_REQUEST_ALREADY_PENDING`.
+
+### GET /join-requests/me
+
+Return the authenticated caller's pending join requests, newest first. This
+is self-scoped and requires no membership. Response `200` is an array of the
+join-request objects above; `[]` means there are no pending requests.
+
+### GET /organizations/{id}/join-requests
+
+Return the organization's pending requests, oldest first. Requires `WRITE`
+access. Response `200` is an array of join-request objects.
+
+### POST /organizations/{id}/join-requests/{request_id}/approve
+
+Approve a pending request and create the membership in the same transaction.
+The approver, not the requester, selects the role. Requires `WRITE` access.
+
+Request:
+```json
+{ "role": "EMPLOYEE" }
+```
+
+Response `200`: the join-request object with `status: "APPROVED"`, a decision
+timestamp, and the approver's user id in `decided_by`.
+
+Errors: `422 JOIN_REQUEST_ALREADY_DECIDED` if it is no longer pending, or
+`422 ALREADY_ORGANIZATION_MEMBER` if the requester already became a member.
+
+### POST /organizations/{id}/join-requests/{request_id}/reject
+
+Reject a pending request without creating a membership. Requires `WRITE`
+access. No request body. Response `200` is the join-request object with
+`status: "REJECTED"` and populated decision fields. A request that has
+already been decided returns `422 JOIN_REQUEST_ALREADY_DECIDED`.
+
+### GET /organizations/{id}/members
+
+List current members, ordered by email and then user id. Requires `VIEW`, so
+all three roles may use it.
+
+Response `200`:
+```json
+[
+  {
+    "user_id": 1,
+    "email": "owner@example.com",
+    "role": "OWNER",
+    "joined_at": "2026-08-31T09:00:00Z"
+  }
+]
+```
+
+### PATCH /organizations/{id}/members/{user_id}
+
+Change a current member's role. Requires `WRITE` access.
+
+Request:
+```json
+{ "role": "ADMIN" }
+```
+
+Response `200`: the updated member object. Demoting the last remaining
+`OWNER` returns `422 LAST_OWNER_REQUIRED`.
+
+### DELETE /organizations/{id}/members/{user_id}
+
+Remove a current member. Requires `WRITE` access. Response `204` has no body.
+Removing the last remaining `OWNER` returns `422 LAST_OWNER_REQUIRED`.
+Self-demotion and self-removal are allowed when another `OWNER` remains.
+Inaccessible organizations, join requests, and member targets use the same
+masked `404 NOT_FOUND` convention as other organization-owned resources.
 
 ---
 

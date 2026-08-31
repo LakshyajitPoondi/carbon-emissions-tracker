@@ -200,6 +200,43 @@ export const realClient: ApiClient = {
   // than a second opinion about it.
   listOrganizations: () => request("/organizations"),
 
+  getOrganizationJoinCode: (organizationId) =>
+    request(`/organizations/${organizationId}/join-code`),
+
+  regenerateOrganizationJoinCode: (organizationId) =>
+    request(`/organizations/${organizationId}/join-code/regenerate`, { method: "POST" }),
+
+  submitJoinRequest: (req) =>
+    request("/join-requests", { method: "POST", body: JSON.stringify(req) }),
+
+  listMyPendingJoinRequests: () => request("/join-requests/me"),
+
+  listPendingJoinRequests: (organizationId) =>
+    request(`/organizations/${organizationId}/join-requests`),
+
+  approveJoinRequest: (organizationId, requestId, req) =>
+    request(`/organizations/${organizationId}/join-requests/${requestId}/approve`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+
+  rejectJoinRequest: (organizationId, requestId) =>
+    request(`/organizations/${organizationId}/join-requests/${requestId}/reject`, {
+      method: "POST",
+    }),
+
+  listOrganizationMembers: (organizationId) =>
+    request(`/organizations/${organizationId}/members`),
+
+  updateOrganizationMemberRole: (organizationId, userId, req) =>
+    request(`/organizations/${organizationId}/members/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    }),
+
+  removeOrganizationMember: (organizationId, userId) =>
+    request(`/organizations/${organizationId}/members/${userId}`, { method: "DELETE" }),
+
   createFacility: (req) =>
     request("/facilities", { method: "POST", body: JSON.stringify(req) }),
 
