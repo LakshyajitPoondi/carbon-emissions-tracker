@@ -6,15 +6,9 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
 import { useFacilityLiveUpdates } from "../hooks/useFacilityLiveUpdates";
-import type { ConsumptionRecord, EmissionsSummary, SourceType } from "../types";
-import { SOURCE_TYPES } from "../types";
+import type { ConsumptionRecord, EmissionsSummary } from "../types";
 import { daysAgoInputValue, formatKgCo2e, todayInputValue } from "../utils/format";
-
-const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
-  ENERGY: "Energy",
-  FUEL: "Fuel",
-  RESOURCE: "Resource",
-};
+import { GHG_SCOPE_SOURCE_TYPES, sourceTypeDisplayLabel } from "../utils/sourceTypePresentation";
 
 export function DashboardPage() {
   const { facility } = useAppState();
@@ -91,13 +85,15 @@ function DashboardForFacility({ facilityId, facilityName }: { facilityId: number
   }
 
   const maxValue =
-    summary != null ? Math.max(1, ...SOURCE_TYPES.map((t) => Number(summary.by_source_type[t]))) : 1;
+    summary != null
+      ? Math.max(1, ...GHG_SCOPE_SOURCE_TYPES.map((type) => Number(summary.by_source_type[type])))
+      : 1;
 
   return (
     <main className="page">
       <h1>Dashboard</h1>
       <p className="page__intro">
-        Emissions summary for <strong>{facilityName}</strong>.
+        GHG Protocol emissions summary for <strong>{facilityName}</strong>.
         {isLive && (
           <span className="live-badge" title="Live updates connected">
             <span className="live-badge__dot" aria-hidden="true" /> Live
@@ -136,25 +132,31 @@ function DashboardForFacility({ facilityId, facilityName }: { facilityId: number
 
       {status === "ready" && summary && (
         <section className="card">
+          <h2>Scope 1, 2 &amp; 3 emissions</h2>
           <p className="result-panel__figure">
             {formatKgCo2e(summary.total_emissions_kg_co2e)} kg CO2e
-            <span className="result-panel__meta"> total, {summary.period.start} – {summary.period.end}</span>
+            <span className="result-panel__meta">
+              {" "}
+              combined total, {summary.period.start} – {summary.period.end}
+            </span>
           </p>
 
-          <div className="bar-chart" role="img" aria-label="Emissions by source type">
-            {SOURCE_TYPES.map((type) => {
+          <div className="bar-chart" role="img" aria-label="GHG emissions by scope">
+            {GHG_SCOPE_SOURCE_TYPES.map((type) => {
               const value = Number(summary.by_source_type[type]);
               const widthPct = (value / maxValue) * 100;
               return (
                 <div className="bar-chart__row" key={type}>
-                  <span className="bar-chart__label">{SOURCE_TYPE_LABEL[type]}</span>
+                  <span className="bar-chart__label">{sourceTypeDisplayLabel(type)}</span>
                   <div className="bar-chart__track">
                     <div
                       className={`bar-chart__fill bar-chart__fill--${type.toLowerCase()}`}
                       style={{ width: `${widthPct}%` }}
                     />
                   </div>
-                  <span className="bar-chart__value">{formatKgCo2e(summary.by_source_type[type])} kg</span>
+                  <span className="bar-chart__value">
+                    {formatKgCo2e(summary.by_source_type[type])} kg CO2e
+                  </span>
                 </div>
               );
             })}

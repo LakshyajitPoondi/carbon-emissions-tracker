@@ -5,7 +5,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
 import type { EmissionSource, Facility, SourceType } from "../types";
-import { SOURCE_TYPES } from "../types";
+import { GHG_SCOPE_SOURCE_TYPES, sourceTypeDisplayLabel } from "../utils/sourceTypePresentation";
 
 type ListStatus = "loading" | "ready" | "error";
 
@@ -390,7 +390,7 @@ function EmissionSourceSection({ facilityId }: { facilityId: number }) {
             <thead>
               <tr>
                 <th scope="col">Name</th>
-                <th scope="col">Type</th>
+                <th scope="col">GHG Protocol category</th>
                 <th scope="col">Unit</th>
               </tr>
             </thead>
@@ -398,7 +398,7 @@ function EmissionSourceSection({ facilityId }: { facilityId: number }) {
               {sources.map((s) => (
                 <tr key={s.id}>
                   <td>{s.source_name}</td>
-                  <td>{s.source_type}</td>
+                  <td>{sourceTypeDisplayLabel(s.source_type)}</td>
                   <td>{s.unit_of_measurement}</td>
                 </tr>
               ))}
@@ -409,15 +409,15 @@ function EmissionSourceSection({ facilityId }: { facilityId: number }) {
       <form className="card__col" onSubmit={handleCreate}>
         <h3>Create new</h3>
         <div className="field">
-          <label htmlFor="source-type">Source type</label>
+          <label htmlFor="source-type">GHG Protocol category</label>
           <select
             id="source-type"
             value={sourceType}
             onChange={(e) => setSourceType(e.target.value as SourceType)}
           >
-            {SOURCE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {GHG_SCOPE_SOURCE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {sourceTypeDisplayLabel(type)}
               </option>
             ))}
           </select>

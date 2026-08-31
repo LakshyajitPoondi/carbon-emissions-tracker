@@ -5,15 +5,9 @@ import { apiClient } from "../api";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
-import type { OrganizationOverview, SourceType } from "../types";
-import { SOURCE_TYPES } from "../types";
+import type { OrganizationOverview } from "../types";
 import { daysAgoInputValue, formatKgCo2e, todayInputValue } from "../utils/format";
-
-const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
-  ENERGY: "Energy",
-  FUEL: "Fuel",
-  RESOURCE: "Resource",
-};
+import { GHG_SCOPE_SOURCE_TYPES, sourceTypeDisplayLabel } from "../utils/sourceTypePresentation";
 
 /**
  * Every facility in the current organization, side by side, from a single
@@ -102,7 +96,7 @@ function OverviewForOrganization({ organizationId }: { organizationId: number })
   const maxCategoryValue = Math.max(
     1,
     ...facilities.flatMap((facility) =>
-      SOURCE_TYPES.map((type) => Number(facility.emissionsSummary.bySourceType[type] ?? 0)),
+      GHG_SCOPE_SOURCE_TYPES.map((type) => Number(facility.emissionsSummary.bySourceType[type] ?? 0)),
     ),
   );
 
@@ -110,7 +104,7 @@ function OverviewForOrganization({ organizationId }: { organizationId: number })
     <main className="page">
       <h1>{overview ? overview.name : "Organization Overview"}</h1>
       <p className="page__intro">
-        Every facility in this organization, from a single GraphQL query.
+        GHG Protocol Scope 1, 2 and 3 emissions across every facility, from a single GraphQL query.
         {overview && <span className="result-panel__meta"> {overview.industryType}</span>}
       </p>
 
@@ -150,7 +144,7 @@ function OverviewForOrganization({ organizationId }: { organizationId: number })
               {formatKgCo2e(String(organizationTotal))} kg CO2e
               <span className="result-panel__meta">
                 {" "}
-                organization total, {startDate} – {endDate}
+                combined organization total, {startDate} – {endDate}
               </span>
             </p>
             <p className="result-panel__meta">
@@ -175,25 +169,26 @@ function OverviewForOrganization({ organizationId }: { organizationId: number })
                     <span className="result-panel__meta"> {facility.location}</span>
                   </p>
 
+                  <h3>Scope 1, 2 &amp; 3 emissions</h3>
                   <div
                     className="bar-chart"
                     role="img"
-                    aria-label={`Emissions by source type for ${facility.name}`}
+                    aria-label={`GHG emissions by scope for ${facility.name}`}
                   >
-                    {SOURCE_TYPES.map((type) => {
+                    {GHG_SCOPE_SOURCE_TYPES.map((type) => {
                       const raw = summary.bySourceType[type] ?? "0";
                       const value = Number(raw);
                       const widthPct = (value / maxCategoryValue) * 100;
                       return (
                         <div className="bar-chart__row" key={type}>
-                          <span className="bar-chart__label">{SOURCE_TYPE_LABEL[type]}</span>
+                          <span className="bar-chart__label">{sourceTypeDisplayLabel(type)}</span>
                           <div className="bar-chart__track">
                             <div
                               className={`bar-chart__fill bar-chart__fill--${type.toLowerCase()}`}
                               style={{ width: `${widthPct}%` }}
                             />
                           </div>
-                          <span className="bar-chart__value">{formatKgCo2e(raw)} kg</span>
+                          <span className="bar-chart__value">{formatKgCo2e(raw)} kg CO2e</span>
                         </div>
                       );
                     })}

@@ -8,6 +8,7 @@ import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
 import type { ConsumptionRecord, EmissionSource } from "../types";
 import { dateTimeLocalToIso, formatDateTime, formatKgCo2e, nowDateTimeLocalValue } from "../utils/format";
+import { sourceTypeDisplayLabel } from "../utils/sourceTypePresentation";
 
 type ListStatus = "loading" | "ready" | "error";
 
@@ -136,7 +137,7 @@ function ConsumptionForFacility({ facilityId, facilityName }: { facilityId: numb
               >
                 {sources.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.source_name} ({s.source_type})
+                    {s.source_name} ({sourceTypeDisplayLabel(s.source_type)})
                   </option>
                 ))}
               </select>

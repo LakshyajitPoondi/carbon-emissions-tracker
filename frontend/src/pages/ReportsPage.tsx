@@ -8,6 +8,7 @@ import { useAppState } from "../context/AppStateContext";
 import { useOrganizationLiveUpdates } from "../hooks/useOrganizationLiveUpdates";
 import type { Report, ReportStatus, ReportSummary } from "../types";
 import { daysAgoInputValue, formatDateTime, formatKgCo2e, todayInputValue } from "../utils/format";
+import { GHG_SCOPE_TOTAL_CAPTION } from "../utils/sourceTypePresentation";
 
 // How often to poll GET /reports/{id} for a report that's still
 // pending/processing, as a backup to the organization WebSocket channel
@@ -192,6 +193,7 @@ function ReportsForOrganization({
           </span>
         )}
       </p>
+      <p className="result-panel__meta">{GHG_SCOPE_TOTAL_CAPTION}</p>
 
       <section className="card">
         <h2>Generate a report</h2>
@@ -225,7 +227,7 @@ function ReportsForOrganization({
           (generated.status === "final" ? (
             <p className="selection-confirm">
               Report #{generated.id} generated — {formatKgCo2e(generated.total_emissions_kg_co2e ?? "0")} kg CO2e
-              total.
+              combined Scope 1–3 total.
             </p>
           ) : (
             <LoadingState
@@ -248,7 +250,7 @@ function ReportsForOrganization({
                   <th scope="col">Period</th>
                   <th scope="col">Generated</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Total (kg CO2e)</th>
+                  <th scope="col">Scope 1–3 total (kg CO2e)</th>
                   <th scope="col"></th>
                 </tr>
               </thead>
@@ -290,13 +292,13 @@ function ReportsForOrganization({
           {selectedReport.status === "final" && selectedReport.facilities ? (
             <>
               <p className="result-panel__figure">
-                {formatKgCo2e(selectedReport.total_emissions_kg_co2e ?? "0")} kg CO2e total
+                {formatKgCo2e(selectedReport.total_emissions_kg_co2e ?? "0")} kg CO2e combined Scope 1–3 total
               </p>
               <table className="data-table">
                 <thead>
                   <tr>
                     <th scope="col">Facility</th>
-                    <th scope="col">Emissions (kg CO2e)</th>
+                    <th scope="col">Scope 1–3 emissions (kg CO2e)</th>
                   </tr>
                 </thead>
                 <tbody>
