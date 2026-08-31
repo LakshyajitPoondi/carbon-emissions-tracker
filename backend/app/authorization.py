@@ -42,6 +42,7 @@ from app.models.organization_member import (
     ROLE_OWNER,
     OrganizationMember,
 )
+from app.models.product import Product
 from app.models.report import Report
 from app.models.user import User
 
@@ -223,3 +224,28 @@ def require_report(
     if report is None:
         raise _not_found("Report", report_id)
     return report
+
+
+def require_product(
+    db: Session,
+    user: User,
+    product_id: int,
+    action: OrganizationAction = OrganizationAction.WRITE,
+) -> Product:
+    """A product the user's organization role permits ``action`` on."""
+    product = (
+        db.query(Product)
+        .join(
+            OrganizationMember,
+            OrganizationMember.organization_id == Product.organization_id,
+        )
+        .filter(
+            Product.id == product_id,
+            OrganizationMember.user_id == user.id,
+            OrganizationMember.role.in_(_ROLES_BY_ACTION[action]),
+        )
+        .first()
+    )
+    if product is None:
+        raise _not_found("Product", product_id)
+    return product

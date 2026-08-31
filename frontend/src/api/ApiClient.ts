@@ -12,12 +12,16 @@ import type {
   EmissionsSummary,
   EmissionSource,
   EmissionSourceCreateRequest,
+  EmissionSourceUpdateRequest,
   Facility,
   FacilityCreateRequest,
   LoginRequest,
   Organization,
   OrganizationCreateRequest,
   OrganizationOverview,
+  Product,
+  ProductCreateRequest,
+  ProductUpdateRequest,
   RegisterRequest,
   Report,
   ReportGenerateRequest,
@@ -77,7 +81,14 @@ export interface ApiClient {
   listFacilities(organizationId: number): Promise<Facility[]>;
 
   createEmissionSource(req: EmissionSourceCreateRequest): Promise<EmissionSource>;
+  updateEmissionSource(id: number, req: EmissionSourceUpdateRequest): Promise<EmissionSource>;
   listEmissionSources(facilityId: number): Promise<EmissionSource[]>;
+
+  createProduct(req: ProductCreateRequest): Promise<Product>;
+  listProducts(organizationId: number): Promise<Product[]>;
+  getProduct(id: number): Promise<Product>;
+  updateProduct(id: number, req: ProductUpdateRequest): Promise<Product>;
+  deleteProduct(id: number): Promise<void>;
 
   /** image is a captured webcam frame (canvas.toBlob output). */
   scanAsset(facilityId: number, image: Blob): Promise<AssetScanResult>;

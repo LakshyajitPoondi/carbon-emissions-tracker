@@ -96,9 +96,10 @@ Users are linked to organizations through `organization_members`
 - `EMPLOYEE` may use every read-only REST endpoint, GraphQL query, WebSocket
   channel, and the read-only asset scan. It may also create consumption
   records as an append-only entry action.
-- `EMPLOYEE` may not perform other mutations, including creating facilities
-  or emission sources and generating reports. A role denial uses the same
-  masked `404 NOT_FOUND` response as a missing resource or non-membership.
+- `EMPLOYEE` may not perform other mutations, including creating facilities,
+  emission sources, or products; updating/deleting products or emission
+  sources; and generating reports. A role denial uses the same masked `404
+  NOT_FOUND` response as a missing resource or non-membership.
 
 Roles are scoped to one organization. Any authenticated user may create a
 new organization and becomes its `OWNER`, regardless of their role in other
@@ -115,7 +116,7 @@ particular:
   yet. The schema supports it; the API deliberately does not expose it.
 
 **What membership gates.** Every organization-owned resource, reached either
-directly (`organizations`, `reports`) or by walking foreign keys
+directly (`organizations`, `products`, `reports`) or by walking foreign keys
 (`emission_sources` → `facilities` → organization). This applies identically
 across REST, GraphQL and WebSockets — there is no path to the data that
 skips the check.
@@ -212,6 +213,72 @@ in that organization, not a property of the organization itself.
 
 ---
 
+## Product Library
+
+Products are manually maintained, organization-scoped reference data. They
+are independent of facilities, emission sources, consumption records, and
+emission factors; no Product field participates in emissions calculations.
+
+Product object:
+```json
+{
+  "id": 1,
+  "organization_id": 1,
+  "name": "Recycled aluminium bottle",
+  "barcode": "8901234567890",
+  "composition": "70% recycled aluminium, 30% primary aluminium",
+  "emissions_value": "1.250000",
+  "emissions_unit": "kg CO2e/item",
+  "emissions_description": "Cradle-to-gate embodied emissions per finished bottle",
+  "source_reference": "Supplier EPD, 2026",
+  "created_at": "2026-08-31T10:00:00Z",
+  "updated_at": "2026-08-31T10:00:00Z"
+}
+```
+
+`emissions_value` is a non-negative decimal serialized as a string.
+`barcode` is nullable: omit it or send `null` when it is not known. Empty or
+whitespace-only barcode strings normalize to `null`. A non-null barcode is
+unique within one organization, but separate organizations may catalogue the
+same barcode. Barcode matching is case-sensitive.
+
+### POST /products
+
+OWNER/ADMIN only. Request contains every Product field above except `id` and
+timestamps. Response `201`: the created Product object.
+
+Errors: masked `404` if the organization is absent, inaccessible, or the
+caller's role cannot create products; `422 BARCODE_ALREADY_ASSIGNED` for a
+duplicate non-null barcode in the organization; `422 VALIDATION_ERROR` for
+missing/blank required text or a negative emissions value.
+
+### GET /products?organization_id={id}
+
+All organization roles. Response `200`: Product objects ordered by `name`
+ascending, then `id` ascending. Masked `404` if the organization is absent or
+inaccessible.
+
+### GET /products/{id}
+
+All organization roles. Response `200`: one Product object. Missing and
+inaccessible products share the same masked `404 NOT_FOUND` response.
+
+### PATCH /products/{id}
+
+OWNER/ADMIN only. Request contains at least one mutable Product field. The
+`organization_id` is immutable and is never accepted. Send `{"barcode":
+null}` to clear a barcode. Response `200`: the updated Product object.
+
+Errors use the same masked `404`, barcode-conflict, and validation behavior as
+creation.
+
+### DELETE /products/{id}
+
+OWNER/ADMIN only. Response `204` with no body. Missing, inaccessible, and
+role-denied products share the same masked `404 NOT_FOUND` response.
+
+---
+
 ## Facilities
 
 ### POST /facilities
@@ -240,6 +307,16 @@ Request:
 `source_type` must be one of: `ENERGY`, `FUEL`, `RESOURCE`. `barcode_value` is optional — omit or send `null` if the source has no barcode label yet.
 Response `201`: object + `id`, timestamps, `barcode_value` (`null` if not set).
 Errors: `404` if `facility_id` missing. `422` if `source_type` invalid, or `barcode_value` (when provided) already belongs to another source in the same facility (`BARCODE_ALREADY_ASSIGNED`).
+
+### PATCH /emission-sources/{id}
+
+OWNER/ADMIN only. Partially updates `source_type`, `source_name`,
+`unit_of_measurement`, and/or `barcode_value`; `facility_id` is immutable and
+is not accepted. At least one field is required. Send `{"barcode_value":
+null}` to clear the barcode. Response `200`: the updated emission source
+object. Errors: masked `404` for absent/inaccessible/role-denied sources;
+`422 BARCODE_ALREADY_ASSIGNED` when the new non-null barcode is already used
+within the facility; `422 VALIDATION_ERROR` for invalid or empty updates.
 
 ### GET /emission-sources?facility_id={id}
 Response `200`: array of emission source objects (each including `barcode_value`).

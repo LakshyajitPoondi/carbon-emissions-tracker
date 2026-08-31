@@ -22,3 +22,10 @@ export interface EmissionSourceCreateRequest {
   unit_of_measurement: string;
   barcode_value?: string | null;
 }
+
+export interface EmissionSourceUpdateRequest {
+  source_type?: SourceType;
+  source_name?: string;
+  unit_of_measurement?: string;
+  barcode_value?: string | null;
+}

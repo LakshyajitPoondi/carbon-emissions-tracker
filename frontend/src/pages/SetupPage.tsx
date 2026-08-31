@@ -359,6 +359,8 @@ function EmissionSourceSection({
   const [sourceType, setSourceType] = useState<SourceType>("ENERGY");
   const [sourceName, setSourceName] = useState("");
   const [unit, setUnit] = useState("");
+  const [barcodeValue, setBarcodeValue] = useState("");
+  const [editingSource, setEditingSource] = useState<EmissionSource | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<unknown>(null);
 
@@ -379,19 +381,41 @@ function EmissionSourceSection({
     load();
   }, [load]);
 
+  function resetForm() {
+    setEditingSource(null);
+    setSourceType("ENERGY");
+    setSourceName("");
+    setUnit("");
+    setBarcodeValue("");
+    setCreateError(null);
+  }
+
+  function beginEdit(source: EmissionSource) {
+    setEditingSource(source);
+    setSourceType(source.source_type);
+    setSourceName(source.source_name);
+    setUnit(source.unit_of_measurement);
+    setBarcodeValue(source.barcode_value ?? "");
+    setCreateError(null);
+  }
+
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setCreating(true);
     setCreateError(null);
     try {
-      await apiClient.createEmissionSource({
-        facility_id: facilityId,
+      const fields = {
         source_type: sourceType,
         source_name: sourceName,
         unit_of_measurement: unit,
-      });
-      setSourceName("");
-      setUnit("");
+        barcode_value: barcodeValue.trim() || null,
+      };
+      if (editingSource) {
+        await apiClient.updateEmissionSource(editingSource.id, fields);
+      } else {
+        await apiClient.createEmissionSource({ facility_id: facilityId, ...fields });
+      }
+      resetForm();
       await load();
     } catch (err) {
       setCreateError(err);
@@ -420,6 +444,8 @@ function EmissionSourceSection({
                 <th scope="col">Name</th>
                 <th scope="col">GHG Protocol category</th>
                 <th scope="col">Unit</th>
+                <th scope="col">Barcode</th>
+                {canManage && <th scope="col">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -428,6 +454,14 @@ function EmissionSourceSection({
                   <td>{s.source_name}</td>
                   <td>{sourceTypeDisplayLabel(s.source_type)}</td>
                   <td>{s.unit_of_measurement}</td>
+                  <td>{s.barcode_value ?? "Not assigned"}</td>
+                  {canManage && (
+                    <td>
+                      <button type="button" onClick={() => beginEdit(s)}>
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -436,7 +470,7 @@ function EmissionSourceSection({
 
       {canManage ? (
         <form className="card__col" onSubmit={handleCreate}>
-          <h3>Create new</h3>
+          <h3>{editingSource ? `Edit ${editingSource.source_name}` : "Create new"}</h3>
           <div className="field">
             <label htmlFor="source-type">GHG Protocol category</label>
             <select
@@ -471,9 +505,29 @@ function EmissionSourceSection({
               placeholder="kWh"
             />
           </div>
-          <button type="submit" disabled={creating}>
-            {creating ? "Creating…" : "Create emission source"}
-          </button>
+          <div className="field">
+            <label htmlFor="source-barcode">Barcode (optional)</label>
+            <input
+              id="source-barcode"
+              value={barcodeValue}
+              onChange={(e) => setBarcodeValue(e.target.value)}
+              placeholder="ENSRC-00042"
+            />
+          </div>
+          <div className="button-row">
+            <button type="submit" disabled={creating}>
+              {creating
+                ? "Saving…"
+                : editingSource
+                  ? "Save changes"
+                  : "Create emission source"}
+            </button>
+            {editingSource && (
+              <button type="button" className="link-button" onClick={resetForm}>
+                Cancel edit
+              </button>
+            )}
+          </div>
           {createError !== null && <ErrorBanner error={createError} />}
         </form>
       ) : (

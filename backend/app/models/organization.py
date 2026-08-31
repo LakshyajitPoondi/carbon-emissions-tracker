@@ -29,6 +29,7 @@ class Organization(Base):
     # Relationships
     facilities = relationship("Facility", back_populates="organization", cascade="all, delete-orphan")
     reports = relationship("Report", back_populates="organization", cascade="all, delete-orphan")
+    products = relationship("Product", back_populates="organization", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_organizations_name", "name"),

@@ -60,6 +60,9 @@ export function NavBar() {
           <NavLink to="/overview" className={navLinkClass}>
             Overview
           </NavLink>
+          <NavLink to="/products" className={navLinkClass}>
+            Products
+          </NavLink>
           <NavLink to="/reports" className={navLinkClass}>
             Reports
           </NavLink>

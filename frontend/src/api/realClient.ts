@@ -209,8 +209,24 @@ export const realClient: ApiClient = {
   createEmissionSource: (req) =>
     request("/emission-sources", { method: "POST", body: JSON.stringify(req) }),
 
+  updateEmissionSource: (id, req) =>
+    request(`/emission-sources/${id}`, { method: "PATCH", body: JSON.stringify(req) }),
+
   listEmissionSources: (facilityId) =>
     request(`/emission-sources${query({ facility_id: facilityId })}`),
+
+  createProduct: (req) =>
+    request("/products", { method: "POST", body: JSON.stringify(req) }),
+
+  listProducts: (organizationId) =>
+    request(`/products${query({ organization_id: organizationId })}`),
+
+  getProduct: (id) => request(`/products/${id}`),
+
+  updateProduct: (id, req) =>
+    request(`/products/${id}`, { method: "PATCH", body: JSON.stringify(req) }),
+
+  deleteProduct: (id) => request(`/products/${id}`, { method: "DELETE" }),
 
   scanAsset: (facilityId, image) => {
     const formData = new FormData();

@@ -1,4 +1,6 @@
-"""Tests for POST /api/emission-sources — invalid source_type returns 422."""
+"""Tests for creating and updating emission sources."""
+
+from app.models.organization_member import ROLE_EMPLOYEE
 
 
 class TestCreateEmissionSource:
@@ -113,3 +115,87 @@ class TestCreateEmissionSource:
         )
         assert second.status_code == 422
         assert second.json()["error"]["code"] == "BARCODE_ALREADY_ASSIGNED"
+
+
+def _source_tree(client):
+    organization = client.post(
+        "/api/organizations",
+        json={"name": "Source Update Org", "industry_type": "manufacturing"},
+    ).json()
+    facility = client.post(
+        "/api/facilities",
+        json={
+            "organization_id": organization["id"],
+            "name": "Source Update Facility",
+            "location": "Chennai, TN",
+            "facility_type": "factory",
+        },
+    ).json()
+    source = client.post(
+        "/api/emission-sources",
+        json={
+            "facility_id": facility["id"],
+            "source_type": "ENERGY",
+            "source_name": "Grid electricity",
+            "unit_of_measurement": "kWh",
+        },
+    ).json()
+    return organization, facility, source
+
+
+class TestUpdateEmissionSource:
+    def test_sets_and_clears_barcode_value(self, client):
+        _, _, source = _source_tree(client)
+
+        set_barcode = client.patch(
+            f"/api/emission-sources/{source['id']}",
+            json={"barcode_value": "MANUAL-BARCODE-001"},
+        )
+        assert set_barcode.status_code == 200
+        assert set_barcode.json()["barcode_value"] == "MANUAL-BARCODE-001"
+        listed = client.get(
+            "/api/emission-sources",
+            params={"facility_id": set_barcode.json()["facility_id"]},
+        )
+        assert listed.status_code == 200
+        assert listed.json()[0]["barcode_value"] == "MANUAL-BARCODE-001"
+
+        clear_barcode = client.patch(
+            f"/api/emission-sources/{source['id']}",
+            json={"barcode_value": None},
+        )
+        assert clear_barcode.status_code == 200
+        assert clear_barcode.json()["barcode_value"] is None
+
+    def test_duplicate_barcode_update_returns_422(self, client):
+        _, facility, source = _source_tree(client)
+        other = client.post(
+            "/api/emission-sources",
+            json={
+                "facility_id": facility["id"],
+                "source_type": "FUEL",
+                "source_name": "Diesel",
+                "unit_of_measurement": "litre",
+                "barcode_value": "ALREADY-USED",
+            },
+        ).json()
+
+        response = client.patch(
+            f"/api/emission-sources/{source['id']}",
+            json={"barcode_value": other["barcode_value"]},
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "BARCODE_ALREADY_ASSIGNED"
+
+    def test_employee_update_is_masked_as_not_found(
+        self, client, other_client, other_user, grant_membership
+    ):
+        organization, _, source = _source_tree(client)
+        grant_membership(other_user.id, organization["id"], ROLE_EMPLOYEE)
+
+        response = other_client.patch(
+            f"/api/emission-sources/{source['id']}",
+            json={"barcode_value": "EMPLOYEE-CANNOT-WRITE"},
+        )
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "NOT_FOUND"

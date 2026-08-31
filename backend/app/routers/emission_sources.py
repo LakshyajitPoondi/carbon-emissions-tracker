@@ -1,8 +1,9 @@
 """Emission Source endpoints.
 
-POST /emission-sources                    — create an emission source
-GET  /emission-sources?facility_id={id}   — list emission sources for a facility
-GET  /emission-sources/{id}/label         — ZPL label for that source's barcode
+POST  /emission-sources                    — create an emission source
+PATCH /emission-sources/{id}               — update an emission source
+GET   /emission-sources?facility_id={id}   — list emission sources for a facility
+GET   /emission-sources/{id}/label         — ZPL label for that source's barcode
 """
 
 from fastapi import APIRouter, Depends, Query, status
@@ -18,7 +19,11 @@ from app.authorization import (
 from app.database import get_db
 from app.models.emission_source import EmissionSource, SourceTypeEnum
 from app.models.user import User
-from app.schemas.emission_source import EmissionSourceCreate, EmissionSourceResponse
+from app.schemas.emission_source import (
+    EmissionSourceCreate,
+    EmissionSourceResponse,
+    EmissionSourceUpdate,
+)
 from app.schemas.error import error_response
 from app.schemas.label import LabelResponse
 from app.services import labels
@@ -28,6 +33,35 @@ router = APIRouter(
     tags=["Emission Sources"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+def _barcode_is_taken(
+    db: Session,
+    facility_id: int,
+    barcode_value: str | None,
+    *,
+    excluding_source_id: int | None = None,
+) -> bool:
+    if barcode_value is None:
+        return False
+    query = db.query(EmissionSource.id).filter(
+        EmissionSource.facility_id == facility_id,
+        EmissionSource.barcode_value == barcode_value,
+    )
+    if excluding_source_id is not None:
+        query = query.filter(EmissionSource.id != excluding_source_id)
+    return query.first() is not None
+
+
+def _barcode_conflict(barcode_value: str, facility_id: int) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=error_response(
+            "BARCODE_ALREADY_ASSIGNED",
+            f"Barcode '{barcode_value}' is already assigned to another "
+            f"emission source in facility {facility_id}",
+        ),
+    )
 
 
 @router.post(
@@ -44,24 +78,9 @@ def create_emission_source(
     # organization is indistinguishable from one that does not exist.
     require_facility(db, current_user, body.facility_id, OrganizationAction.WRITE)
 
-    if body.barcode_value is not None:
-        existing = (
-            db.query(EmissionSource)
-            .filter(
-                EmissionSource.facility_id == body.facility_id,
-                EmissionSource.barcode_value == body.barcode_value,
-            )
-            .first()
-        )
-        if existing is not None:
-            return JSONResponse(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                content=error_response(
-                    "BARCODE_ALREADY_ASSIGNED",
-                    f"Barcode '{body.barcode_value}' is already assigned to another "
-                    f"emission source in facility {body.facility_id}",
-                ),
-            )
+    if _barcode_is_taken(db, body.facility_id, body.barcode_value):
+        assert body.barcode_value is not None
+        return _barcode_conflict(body.barcode_value, body.facility_id)
 
     source = EmissionSource(
         facility_id=body.facility_id,
@@ -71,6 +90,36 @@ def create_emission_source(
         barcode_value=body.barcode_value,
     )
     db.add(source)
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+@router.patch("/{emission_source_id}", response_model=EmissionSourceResponse)
+def update_emission_source(
+    emission_source_id: int,
+    body: EmissionSourceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    source = require_emission_source(
+        db, current_user, emission_source_id, OrganizationAction.WRITE
+    )
+    updates = body.model_dump(exclude_unset=True)
+    next_barcode = updates.get("barcode_value", source.barcode_value)
+    if _barcode_is_taken(
+        db,
+        source.facility_id,
+        next_barcode,
+        excluding_source_id=source.id,
+    ):
+        assert isinstance(next_barcode, str)
+        return _barcode_conflict(next_barcode, source.facility_id)
+
+    if "source_type" in updates:
+        updates["source_type"] = SourceTypeEnum(updates["source_type"].value)
+    for field_name, value in updates.items():
+        setattr(source, field_name, value)
     db.commit()
     db.refresh(source)
     return source

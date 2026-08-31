@@ -10,3 +10,4 @@ export * from "./error";
 export * from "./user";
 export * from "./assetScan";
 export * from "./liveUpdate";
+export * from "./product";

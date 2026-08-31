@@ -29,11 +29,15 @@ import type {
   EmissionsSummary,
   EmissionSource,
   EmissionSourceCreateRequest,
+  EmissionSourceUpdateRequest,
   Facility,
   FacilityCreateRequest,
   LoginRequest,
   Organization,
   OrganizationCreateRequest,
+  Product,
+  ProductCreateRequest,
+  ProductUpdateRequest,
   RegisterRequest,
   Report,
   ReportGenerateRequest,
@@ -73,6 +77,7 @@ const nextId = {
   consumptionRecord: 1,
   calculation: 1,
   report: 1,
+  product: 2,
 };
 
 const organizations: Organization[] = [
@@ -173,6 +178,21 @@ const emissionFactors: EmissionFactor[] = [
 
 const consumptionRecords: ConsumptionRecord[] = [];
 const reports: Report[] = [];
+const products: Product[] = [
+  {
+    id: 1,
+    organization_id: 1,
+    name: "Recycled aluminium bottle",
+    barcode: "8901234567890",
+    composition: "70% recycled aluminium, 30% primary aluminium",
+    emissions_value: "1.250000",
+    emissions_unit: "kg CO2e/item",
+    emissions_description: "Cradle-to-gate embodied emissions per finished bottle",
+    source_reference: "Supplier EPD, 2026",
+    created_at: "2026-08-01T09:15:00Z",
+    updated_at: "2026-08-01T09:15:00Z",
+  },
+];
 
 // Preseeded so the login screen is usable standalone in mock mode.
 interface MockUser {
@@ -234,6 +254,12 @@ function requireEmissionSource(id: number): EmissionSource {
   const source = emissionSources.find((s) => s.id === id);
   if (!source) throw new ApiError("NOT_FOUND", `Emission source ${id} does not exist`, 404);
   return source;
+}
+
+function requireProduct(id: number): Product {
+  const product = products.find((item) => item.id === id);
+  if (!product) throw new ApiError("NOT_FOUND", `Product ${id} does not exist`, 404);
+  return product;
 }
 
 function findApplicableFactor(sourceType: SourceType, asOfDate: string): EmissionFactor | undefined {
@@ -401,6 +427,19 @@ export const mockClient: ApiClient = {
     if (!notEmpty(req.source_name) || !notEmpty(req.unit_of_measurement)) {
       throw new ApiError("VALIDATION_ERROR", "source_name and unit_of_measurement must not be empty", 422);
     }
+    const barcode = req.barcode_value?.trim() || null;
+    if (
+      barcode &&
+      emissionSources.some(
+        (source) => source.facility_id === req.facility_id && source.barcode_value === barcode,
+      )
+    ) {
+      throw new ApiError(
+        "BARCODE_ALREADY_ASSIGNED",
+        `Barcode '${barcode}' is already assigned to another emission source in facility ${req.facility_id}`,
+        422,
+      );
+    }
     const now = nowIso();
     const source: EmissionSource = {
       id: nextId.emissionSource++,
@@ -408,7 +447,7 @@ export const mockClient: ApiClient = {
       source_type: req.source_type,
       source_name: req.source_name.trim(),
       unit_of_measurement: req.unit_of_measurement.trim(),
-      barcode_value: req.barcode_value?.trim() || null,
+      barcode_value: barcode,
       created_at: now,
       updated_at: now,
     };
@@ -416,9 +455,178 @@ export const mockClient: ApiClient = {
     return source;
   },
 
+  async updateEmissionSource(id: number, req: EmissionSourceUpdateRequest) {
+    await delay();
+    if (Object.keys(req).length === 0) {
+      throw new ApiError("VALIDATION_ERROR", "At least one emission source field is required", 422);
+    }
+    const source = requireEmissionSource(id);
+    const barcode = req.barcode_value === undefined ? source.barcode_value : req.barcode_value?.trim() || null;
+    if (
+      barcode &&
+      emissionSources.some(
+        (other) =>
+          other.id !== id &&
+          other.facility_id === source.facility_id &&
+          other.barcode_value === barcode,
+      )
+    ) {
+      throw new ApiError(
+        "BARCODE_ALREADY_ASSIGNED",
+        `Barcode '${barcode}' is already assigned to another emission source in facility ${source.facility_id}`,
+        422,
+      );
+    }
+    if (req.source_name !== undefined && !notEmpty(req.source_name)) {
+      throw new ApiError("VALIDATION_ERROR", "source_name must not be empty", 422);
+    }
+    if (req.unit_of_measurement !== undefined && !notEmpty(req.unit_of_measurement)) {
+      throw new ApiError("VALIDATION_ERROR", "unit_of_measurement must not be empty", 422);
+    }
+    if (req.source_type !== undefined && !SOURCE_TYPES.includes(req.source_type)) {
+      throw new ApiError("VALIDATION_ERROR", `source_type must be one of ${SOURCE_TYPES.join(", ")}`, 422);
+    }
+
+    Object.assign(source, {
+      ...(req.source_type !== undefined ? { source_type: req.source_type } : {}),
+      ...(req.source_name !== undefined ? { source_name: req.source_name.trim() } : {}),
+      ...(req.unit_of_measurement !== undefined
+        ? { unit_of_measurement: req.unit_of_measurement.trim() }
+        : {}),
+      barcode_value: barcode,
+      updated_at: nowIso(),
+    });
+    return source;
+  },
+
   async listEmissionSources(facilityId: number) {
     await delay();
     return emissionSources.filter((s) => s.facility_id === facilityId);
+  },
+
+  async createProduct(req: ProductCreateRequest) {
+    await delay();
+    requireOrganization(req.organization_id);
+    if (
+      !notEmpty(req.name) ||
+      !notEmpty(req.composition) ||
+      !notEmpty(req.emissions_unit) ||
+      !notEmpty(req.emissions_description) ||
+      !notEmpty(req.source_reference) ||
+      !Number.isFinite(Number(req.emissions_value)) ||
+      Number(req.emissions_value) < 0
+    ) {
+      throw new ApiError("VALIDATION_ERROR", "Product fields are invalid", 422);
+    }
+    const barcode = req.barcode?.trim() || null;
+    if (
+      barcode &&
+      products.some(
+        (product) =>
+          product.organization_id === req.organization_id && product.barcode === barcode,
+      )
+    ) {
+      throw new ApiError(
+        "BARCODE_ALREADY_ASSIGNED",
+        `Barcode '${barcode}' is already assigned to another product in organization ${req.organization_id}`,
+        422,
+      );
+    }
+    const now = nowIso();
+    const product: Product = {
+      id: nextId.product++,
+      organization_id: req.organization_id,
+      name: req.name.trim(),
+      barcode,
+      composition: req.composition.trim(),
+      emissions_value: Number(req.emissions_value).toFixed(6),
+      emissions_unit: req.emissions_unit.trim(),
+      emissions_description: req.emissions_description.trim(),
+      source_reference: req.source_reference.trim(),
+      created_at: now,
+      updated_at: now,
+    };
+    products.push(product);
+    return product;
+  },
+
+  async listProducts(organizationId: number) {
+    await delay();
+    requireOrganization(organizationId);
+    return products
+      .filter((product) => product.organization_id === organizationId)
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+  },
+
+  async getProduct(id: number) {
+    await delay();
+    return requireProduct(id);
+  },
+
+  async updateProduct(id: number, req: ProductUpdateRequest) {
+    await delay();
+    if (Object.keys(req).length === 0) {
+      throw new ApiError("VALIDATION_ERROR", "At least one product field is required", 422);
+    }
+    const product = requireProduct(id);
+    const barcode = req.barcode === undefined ? product.barcode : req.barcode?.trim() || null;
+    if (
+      barcode &&
+      products.some(
+        (other) =>
+          other.id !== id &&
+          other.organization_id === product.organization_id &&
+          other.barcode === barcode,
+      )
+    ) {
+      throw new ApiError(
+        "BARCODE_ALREADY_ASSIGNED",
+        `Barcode '${barcode}' is already assigned to another product in organization ${product.organization_id}`,
+        422,
+      );
+    }
+    const requiredText = [
+      req.name,
+      req.composition,
+      req.emissions_unit,
+      req.emissions_description,
+      req.source_reference,
+    ].filter((value) => value !== undefined);
+    if (requiredText.some((value) => !notEmpty(value))) {
+      throw new ApiError("VALIDATION_ERROR", "Product text fields must not be empty", 422);
+    }
+    if (
+      req.emissions_value !== undefined &&
+      (!Number.isFinite(Number(req.emissions_value)) || Number(req.emissions_value) < 0)
+    ) {
+      throw new ApiError("VALIDATION_ERROR", "emissions_value must be non-negative", 422);
+    }
+
+    Object.assign(product, {
+      ...(req.name !== undefined ? { name: req.name.trim() } : {}),
+      barcode,
+      ...(req.composition !== undefined ? { composition: req.composition.trim() } : {}),
+      ...(req.emissions_value !== undefined
+        ? { emissions_value: Number(req.emissions_value).toFixed(6) }
+        : {}),
+      ...(req.emissions_unit !== undefined
+        ? { emissions_unit: req.emissions_unit.trim() }
+        : {}),
+      ...(req.emissions_description !== undefined
+        ? { emissions_description: req.emissions_description.trim() }
+        : {}),
+      ...(req.source_reference !== undefined
+        ? { source_reference: req.source_reference.trim() }
+        : {}),
+      updated_at: nowIso(),
+    });
+    return product;
+  },
+
+  async deleteProduct(id: number) {
+    await delay();
+    const product = requireProduct(id);
+    products.splice(products.indexOf(product), 1);
   },
 
   async scanAsset(facilityId: number, _image: Blob): Promise<AssetScanResult> {

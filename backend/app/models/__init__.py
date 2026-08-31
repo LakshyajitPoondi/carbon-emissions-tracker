@@ -10,3 +10,4 @@ from app.models.emission_calculation import EmissionCalculation  # noqa: F401
 from app.models.report import Report  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
 from app.models.organization_member import OrganizationMember  # noqa: F401
+from app.models.product import Product  # noqa: F401

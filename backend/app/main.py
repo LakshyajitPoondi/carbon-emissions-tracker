@@ -24,6 +24,7 @@ from app.routers import (
     emission_sources,
     facilities,
     organizations,
+    products,
     reports,
     websocket,
 )
@@ -166,6 +167,7 @@ app.include_router(asset_scan.router, prefix="/api")
 app.include_router(emission_sources.router, prefix="/api")
 app.include_router(emission_factors.router, prefix="/api")
 app.include_router(consumption_records.router, prefix="/api")
+app.include_router(products.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(audit_logs.router, prefix="/api")
 app.include_router(websocket.router)  # no /api prefix — matches /health
