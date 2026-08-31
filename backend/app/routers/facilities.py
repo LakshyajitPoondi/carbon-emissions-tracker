@@ -11,7 +11,11 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.authorization import require_facility, require_organization
+from app.authorization import (
+    OrganizationAction,
+    require_facility,
+    require_organization,
+)
 from app.database import get_db
 from app.models.facility import Facility
 from app.models.user import User
@@ -38,7 +42,9 @@ def create_facility(
 ):
     # Replaces the old existence check: a parent organization the caller is
     # not a member of is indistinguishable from one that does not exist.
-    require_organization(db, current_user, body.organization_id)
+    require_organization(
+        db, current_user, body.organization_id, OrganizationAction.WRITE
+    )
 
     facility = Facility(
         organization_id=body.organization_id,
@@ -64,7 +70,7 @@ def list_facilities(
     # Authorize the organization before listing, so a non-member gets a 404
     # rather than an empty list — an empty list would still confirm the
     # organization id is valid.
-    require_organization(db, current_user, organization_id)
+    require_organization(db, current_user, organization_id, OrganizationAction.VIEW)
 
     facilities = (
         db.query(Facility)
@@ -85,7 +91,7 @@ def get_emissions_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_facility(db, current_user, facility_id)
+    require_facility(db, current_user, facility_id, OrganizationAction.VIEW)
 
     by_source_type = facility_emissions_by_source_type(db, facility_id, start_date, end_date)
     total = sum(by_source_type.values())

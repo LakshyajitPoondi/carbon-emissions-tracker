@@ -20,6 +20,7 @@ class TestCreateOrganization:
         data = resp.json()
         assert data["name"] == "Acme Manufacturing"
         assert data["industry_type"] == "manufacturing"
+        assert data["role"] == "OWNER"
         assert "id" in data
         assert "created_at" in data
         # Contract: organization response has no updated_at
@@ -59,7 +60,14 @@ class TestListOrganizations:
             "Zephyr Logistics",
         ]
         # Same object shape as GET /organizations/{id}.
-        assert set(body[0]) == {"id", "name", "industry_type", "created_at"}
+        assert set(body[0]) == {
+            "id",
+            "name",
+            "industry_type",
+            "created_at",
+            "role",
+        }
+        assert {org["role"] for org in body} == {"OWNER"}
 
     def test_returns_empty_list_for_a_user_with_no_memberships(self, other_client):
         """A freshly registered account belongs to nothing — an empty list,
@@ -88,6 +96,7 @@ class TestListOrganizations:
         body = other_client.get("/api/organizations").json()
         assert [org["name"] for org in body] == ["Shared Industries"]
         assert body[0]["id"] == organization["id"]
+        assert body[0]["role"] == "OWNER"
 
     def test_one_users_organizations_never_appear_in_anothers(
         self, client, other_client
@@ -132,6 +141,7 @@ class TestGetOrganization:
         data = resp.json()
         assert data["id"] == org_id
         assert data["name"] == "Test Org"
+        assert data["role"] == "OWNER"
 
     def test_not_found(self, client):
         resp = client.get("/api/organizations/99999")

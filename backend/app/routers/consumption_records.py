@@ -12,7 +12,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
-from app.authorization import require_emission_source, require_facility
+from app.authorization import (
+    OrganizationAction,
+    require_emission_source,
+    require_facility,
+)
 from app.database import get_db
 from app.models.consumption_record import ConsumptionRecord
 from app.models.emission_calculation import EmissionCalculation
@@ -46,8 +50,10 @@ async def create_consumption_record(
     # Both the source and the facility must belong to an organization this
     # user is a member of. Checked independently, because owning one does
     # not imply owning the other.
-    source = require_emission_source(db, current_user, body.emission_source_id)
-    require_facility(db, current_user, body.facility_id)
+    source = require_emission_source(
+        db, current_user, body.emission_source_id, OrganizationAction.ENTRY
+    )
+    require_facility(db, current_user, body.facility_id, OrganizationAction.ENTRY)
 
     # ...and they must belong to each other. Passing both checks above still
     # allows pairing your own facility with a source from a different
@@ -130,7 +136,7 @@ def list_consumption_records(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_facility(db, current_user, facility_id)
+    require_facility(db, current_user, facility_id, OrganizationAction.VIEW)
 
     query = (
         db.query(ConsumptionRecord)

@@ -1,10 +1,11 @@
 """Pydantic schemas for the Organization resource.
 
 Matches docs/api-contract.md — Organizations section.
-Response includes id, name, industry_type, created_at (no updated_at per contract).
+Response includes the caller's membership role for frontend action gating.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -30,3 +31,4 @@ class OrganizationResponse(BaseModel):
     name: str
     industry_type: str
     created_at: datetime
+    role: Literal["OWNER", "ADMIN", "EMPLOYEE"]

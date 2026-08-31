@@ -5,12 +5,14 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
 import type { EmissionSource, Facility, SourceType } from "../types";
+import { hasOrganizationWriteAccess } from "../utils/organizationRoles";
 import { GHG_SCOPE_SOURCE_TYPES, sourceTypeDisplayLabel } from "../utils/sourceTypePresentation";
 
 type ListStatus = "loading" | "ready" | "error";
 
 export function SetupPage() {
   const { organization, facility, selectFacility } = useAppState();
+  const canManageOrganization = hasOrganizationWriteAccess(organization?.role);
 
   return (
     <main className="page">
@@ -25,20 +27,23 @@ export function SetupPage() {
           organizationId={organization.id}
           facility={facility}
           onSelect={selectFacility}
+          canManage={canManageOrganization}
         />
       )}
-      {organization && facility && <EmissionSourceSection facilityId={facility.id} />}
+      {organization && facility && (
+        <EmissionSourceSection
+          facilityId={facility.id}
+          canManage={canManageOrganization}
+        />
+      )}
     </main>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Organizations — the contract still has no list endpoint, so the picker is
-// built from this browser's cache of organizations it has created or looked
-// up. Since the backend gained membership authorization, that cache is
-// revalidated against the server before it is shown (see AppStateContext):
-// anything this user cannot actually access is dropped, so a second user on
-// the same browser never sees the first user's organizations.
+// Organizations — GET /organizations is the source of truth for discovery.
+// AppStateContext reconciles any persisted selection against that list, so a
+// second user on the same browser never inherits the first user's selection.
 // ---------------------------------------------------------------------------
 
 function OrganizationSection() {
@@ -189,7 +194,8 @@ function OrganizationSection() {
 
       {organization && (
         <p className="selection-confirm">
-          Selected: <strong>{organization.name}</strong> ({organization.industry_type})
+          Selected: <strong>{organization.name}</strong> ({organization.industry_type}) — Role:{" "}
+          {organization.role}
         </p>
       )}
     </section>
@@ -205,10 +211,12 @@ function FacilitySection({
   organizationId,
   facility,
   onSelect,
+  canManage,
 }: {
   organizationId: number;
   facility: Facility | null;
   onSelect: (facility: Facility | null) => void;
+  canManage: boolean;
 }) {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [status, setStatus] = useState<ListStatus>("loading");
@@ -269,7 +277,11 @@ function FacilitySection({
       {status === "ready" && (
         <>
           {facilities.length === 0 ? (
-            <p className="empty-state">No facilities yet — create the first one below.</p>
+            <p className="empty-state">
+              {canManage
+                ? "No facilities yet — create the first one below."
+                : "No facilities have been created for this organization."}
+            </p>
           ) : (
             <ul className="pick-list">
               {facilities.map((f) => (
@@ -288,37 +300,43 @@ function FacilitySection({
         </>
       )}
 
-      <form className="card__col" onSubmit={handleCreate}>
-        <h3>Create new</h3>
-        <div className="field">
-          <label htmlFor="fac-name">Name</label>
-          <input id="fac-name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Chennai Plant" />
-        </div>
-        <div className="field">
-          <label htmlFor="fac-location">Location</label>
-          <input
-            id="fac-location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            required
-            placeholder="Chennai, TN"
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="fac-type">Facility type</label>
-          <input
-            id="fac-type"
-            value={facilityType}
-            onChange={(e) => setFacilityType(e.target.value)}
-            required
-            placeholder="factory"
-          />
-        </div>
-        <button type="submit" disabled={creating}>
-          {creating ? "Creating…" : "Create facility"}
-        </button>
-        {createError !== null && <ErrorBanner error={createError} />}
-      </form>
+      {canManage ? (
+        <form className="card__col" onSubmit={handleCreate}>
+          <h3>Create new</h3>
+          <div className="field">
+            <label htmlFor="fac-name">Name</label>
+            <input id="fac-name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Chennai Plant" />
+          </div>
+          <div className="field">
+            <label htmlFor="fac-location">Location</label>
+            <input
+              id="fac-location"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              required
+              placeholder="Chennai, TN"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="fac-type">Facility type</label>
+            <input
+              id="fac-type"
+              value={facilityType}
+              onChange={(e) => setFacilityType(e.target.value)}
+              required
+              placeholder="factory"
+            />
+          </div>
+          <button type="submit" disabled={creating}>
+            {creating ? "Creating…" : "Create facility"}
+          </button>
+          {createError !== null && <ErrorBanner error={createError} />}
+        </form>
+      ) : (
+        <p className="result-panel__meta">
+          EMPLOYEE access is read-only here; OWNER or ADMIN is required to create facilities.
+        </p>
+      )}
     </section>
   );
 }
@@ -327,7 +345,13 @@ function FacilitySection({
 // Emission Sources
 // ---------------------------------------------------------------------------
 
-function EmissionSourceSection({ facilityId }: { facilityId: number }) {
+function EmissionSourceSection({
+  facilityId,
+  canManage,
+}: {
+  facilityId: number;
+  canManage: boolean;
+}) {
   const [sources, setSources] = useState<EmissionSource[]>([]);
   const [status, setStatus] = useState<ListStatus>("loading");
   const [listError, setListError] = useState<unknown>(null);
@@ -384,7 +408,11 @@ function EmissionSourceSection({ facilityId }: { facilityId: number }) {
       {status === "error" && <ErrorBanner error={listError} onRetry={load} />}
       {status === "ready" &&
         (sources.length === 0 ? (
-          <p className="empty-state">No emission sources yet — create the first one below.</p>
+          <p className="empty-state">
+            {canManage
+              ? "No emission sources yet — create the first one below."
+              : "No emission sources have been created for this facility."}
+          </p>
         ) : (
           <table className="data-table">
             <thead>
@@ -406,47 +434,53 @@ function EmissionSourceSection({ facilityId }: { facilityId: number }) {
           </table>
         ))}
 
-      <form className="card__col" onSubmit={handleCreate}>
-        <h3>Create new</h3>
-        <div className="field">
-          <label htmlFor="source-type">GHG Protocol category</label>
-          <select
-            id="source-type"
-            value={sourceType}
-            onChange={(e) => setSourceType(e.target.value as SourceType)}
-          >
-            {GHG_SCOPE_SOURCE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {sourceTypeDisplayLabel(type)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="source-name">Source name</label>
-          <input
-            id="source-name"
-            value={sourceName}
-            onChange={(e) => setSourceName(e.target.value)}
-            required
-            placeholder="Grid electricity"
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="source-unit">Unit of measurement</label>
-          <input
-            id="source-unit"
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-            required
-            placeholder="kWh"
-          />
-        </div>
-        <button type="submit" disabled={creating}>
-          {creating ? "Creating…" : "Create emission source"}
-        </button>
-        {createError !== null && <ErrorBanner error={createError} />}
-      </form>
+      {canManage ? (
+        <form className="card__col" onSubmit={handleCreate}>
+          <h3>Create new</h3>
+          <div className="field">
+            <label htmlFor="source-type">GHG Protocol category</label>
+            <select
+              id="source-type"
+              value={sourceType}
+              onChange={(e) => setSourceType(e.target.value as SourceType)}
+            >
+              {GHG_SCOPE_SOURCE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {sourceTypeDisplayLabel(type)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="source-name">Source name</label>
+            <input
+              id="source-name"
+              value={sourceName}
+              onChange={(e) => setSourceName(e.target.value)}
+              required
+              placeholder="Grid electricity"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="source-unit">Unit of measurement</label>
+            <input
+              id="source-unit"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              required
+              placeholder="kWh"
+            />
+          </div>
+          <button type="submit" disabled={creating}>
+            {creating ? "Creating…" : "Create emission source"}
+          </button>
+          {createError !== null && <ErrorBanner error={createError} />}
+        </form>
+      ) : (
+        <p className="result-panel__meta">
+          EMPLOYEE access is read-only here; OWNER or ADMIN is required to create emission sources.
+        </p>
+      )}
     </section>
   );
 }

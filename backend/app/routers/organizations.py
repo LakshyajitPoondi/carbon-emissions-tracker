@@ -8,7 +8,11 @@ GET  /organizations/{id} — retrieve an organization by ID
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.authorization import require_organization, user_organization_ids
+from app.authorization import (
+    OrganizationAction,
+    organization_role,
+    require_organization,
+)
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.organization import Organization
@@ -21,6 +25,19 @@ router = APIRouter(
     tags=["Organizations"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+def _organization_response(
+    organization: Organization, role: str
+) -> OrganizationResponse:
+    """Attach the requester's membership role to the organization resource."""
+    return OrganizationResponse(
+        id=organization.id,
+        name=organization.name,
+        industry_type=organization.industry_type,
+        created_at=organization.created_at,
+        role=role,
+    )
 
 
 @router.post(
@@ -60,7 +77,7 @@ def create_organization(
 
     db.commit()
     db.refresh(org)
-    return org
+    return _organization_response(org, ROLE_OWNER)
 
 
 @router.get(
@@ -73,13 +90,9 @@ def list_organizations(
 ):
     """Every organization this user is a member of; `[]` if none.
 
-    Membership — not authorship — is what this returns. It deliberately
-    delegates to user_organization_ids rather than writing its own join, so
-    there is exactly one definition of "belongs to" in the codebase and this
-    endpoint cannot drift from the access checks that guard every other
-    route. An implementation that filtered on a creator column instead would
-    look correct for anyone who made their own organization and silently
-    hide organizations shared with them.
+    Membership — not authorship — is what this returns. The join also carries
+    each membership's role so the response can expose the caller's role for
+    that specific organization.
 
     No pagination, deliberately: a membership list is bounded by the number
     of organizations a person has been added to — single digits here, and
@@ -89,20 +102,20 @@ def list_organizations(
     (see below), so pagination can be added later without changing what
     callers already see.
     """
-    organization_ids = user_organization_ids(db, current_user)
-    if not organization_ids:
-        # Skip a query that can only return nothing.
-        return []
-
     # Ordered by name for a predictable picker; id breaks ties, because two
     # organizations may legitimately share a name and "ordered by name"
     # alone would leave their relative order up to the database.
-    return (
-        db.query(Organization)
-        .filter(Organization.id.in_(organization_ids))
+    rows = (
+        db.query(Organization, OrganizationMember.role)
+        .join(
+            OrganizationMember,
+            OrganizationMember.organization_id == Organization.id,
+        )
+        .filter(OrganizationMember.user_id == current_user.id)
         .order_by(Organization.name.asc(), Organization.id.asc())
         .all()
     )
+    return [_organization_response(organization, role) for organization, role in rows]
 
 
 @router.get(
@@ -117,4 +130,10 @@ def get_organization(
     # Raises the same 404 whether the organization is absent or simply not
     # this user's — see app/authorization.py for why they are made
     # indistinguishable.
-    return require_organization(db, current_user, organization_id)
+    organization = require_organization(
+        db, current_user, organization_id, OrganizationAction.VIEW
+    )
+    role = organization_role(db, current_user.id, organization_id)
+    # require_organization just proved this membership exists.
+    assert role is not None
+    return _organization_response(organization, role)

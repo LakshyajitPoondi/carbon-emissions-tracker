@@ -88,10 +88,21 @@ Authentication answers *who is this*; membership answers *is this theirs*.
 A valid token alone grants access to nothing.
 
 Users are linked to organizations through `organization_members`
-(`user_id`, `organization_id`, `role`). One role exists today, `OWNER`, and
-no endpoint behaves differently based on it — the column is there so adding
-a second role later is a data change rather than a migration, and a database
-CHECK constraint rejects any other value.
+(`user_id`, `organization_id`, `role`). Valid roles are `OWNER`, `ADMIN`, and
+`EMPLOYEE`; a database CHECK constraint rejects every other value.
+
+- `OWNER` and `ADMIN` have identical full access to every existing action in
+  the organization.
+- `EMPLOYEE` may use every read-only REST endpoint, GraphQL query, WebSocket
+  channel, and the read-only asset scan. It may also create consumption
+  records as an append-only entry action.
+- `EMPLOYEE` may not perform other mutations, including creating facilities
+  or emission sources and generating reports. A role denial uses the same
+  masked `404 NOT_FOUND` response as a missing resource or non-membership.
+
+Roles are scoped to one organization. Any authenticated user may create a
+new organization and becomes its `OWNER`, regardless of their role in other
+organizations.
 
 **How membership is created.** `POST /organizations` makes the calling user
 an `OWNER` of the organization it creates, in the same transaction. That is
@@ -156,7 +167,7 @@ Request:
 ```
 Response `201`:
 ```json
-{ "id": 1, "name": "Acme Manufacturing", "industry_type": "manufacturing", "created_at": "2026-08-26T10:00:00Z" }
+{ "id": 1, "name": "Acme Manufacturing", "industry_type": "manufacturing", "created_at": "2026-08-26T10:00:00Z", "role": "OWNER" }
 ```
 Errors: `422` if `name` or `industry_type` missing/empty.
 
@@ -172,8 +183,8 @@ Response `200`: array of organization objects, same shape as
 `GET /organizations/{id}`:
 ```json
 [
-  { "id": 1, "name": "Acme Manufacturing", "industry_type": "manufacturing", "created_at": "2026-08-26T10:00:00Z" },
-  { "id": 4, "name": "Zephyr Logistics", "industry_type": "logistics", "created_at": "2026-08-27T09:00:00Z" }
+  { "id": 1, "name": "Acme Manufacturing", "industry_type": "manufacturing", "created_at": "2026-08-26T10:00:00Z", "role": "OWNER" },
+  { "id": 4, "name": "Zephyr Logistics", "industry_type": "logistics", "created_at": "2026-08-27T09:00:00Z", "role": "EMPLOYEE" }
 ]
 ```
 
@@ -195,6 +206,9 @@ Errors: `401` without a valid bearer token, as everywhere.
 ### GET /organizations/{id}
 Response `200`: same shape as above. `404` if it does not exist **or you are
 not a member of it** — the two are indistinguishable by design.
+
+For every organization response, `role` is the authenticated caller's role
+in that organization, not a property of the organization itself.
 
 ---
 

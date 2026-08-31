@@ -7,9 +7,9 @@ GraphQL, and WebSockets alike.
 
 Every resource resolves to an organization, either directly
 (organizations, reports) or by walking foreign keys
-(emission_sources -> facilities -> organization). Access is then a single
-question: does a row exist in organization_members for this (user,
-organization) pair?
+(emission_sources -> facilities -> organization). Access is then answered
+by one membership row and one centrally defined action matrix: VIEW, ENTRY,
+or WRITE.
 
 Two deliberate design choices
 -----------------------------
@@ -28,13 +28,20 @@ and it falls out of the query shape rather than depending on two error
 strings being kept in sync.
 """
 
+from enum import Enum
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.emission_source import EmissionSource
 from app.models.facility import Facility
 from app.models.organization import Organization
-from app.models.organization_member import OrganizationMember
+from app.models.organization_member import (
+    ROLE_ADMIN,
+    ROLE_EMPLOYEE,
+    ROLE_OWNER,
+    OrganizationMember,
+)
 from app.models.report import Report
 from app.models.user import User
 
@@ -54,37 +61,76 @@ def _not_found(resource: str, resource_id: int) -> HTTPException:
     )
 
 
-def is_member(db: Session, user_id: int, organization_id: int) -> bool:
-    """Membership test, for callers that have an organization id already.
+class OrganizationAction(str, Enum):
+    """Organization-scoped actions understood by the role matrix.
 
-    Used by the WebSocket handlers, which have resolved the organization
-    themselves and need a boolean rather than an exception.
+    VIEW covers every read-only REST/GraphQL/WebSocket path. ENTRY is the
+    deliberately narrow append-only permission to create a consumption
+    record. WRITE covers every other mutation that exists today.
+    """
+
+    VIEW = "VIEW"
+    ENTRY = "ENTRY"
+    WRITE = "WRITE"
+
+
+_ROLES_BY_ACTION = {
+    OrganizationAction.VIEW: frozenset({ROLE_OWNER, ROLE_ADMIN, ROLE_EMPLOYEE}),
+    OrganizationAction.ENTRY: frozenset({ROLE_OWNER, ROLE_ADMIN, ROLE_EMPLOYEE}),
+    OrganizationAction.WRITE: frozenset({ROLE_OWNER, ROLE_ADMIN}),
+}
+
+
+def role_allows(role: str, action: OrganizationAction) -> bool:
+    """Pure role-matrix check, shared by request authorization and tests."""
+    return role in _ROLES_BY_ACTION[action]
+
+
+def has_organization_access(
+    db: Session,
+    user_id: int,
+    organization_id: int,
+    action: OrganizationAction = OrganizationAction.WRITE,
+) -> bool:
+    """Whether a membership grants ``action`` in an organization.
+
+    WRITE is the deliberately restrictive default: a future call site that
+    does not classify its action never grants EMPLOYEE access by accident.
     """
     return (
         db.query(OrganizationMember.id)
         .filter(
             OrganizationMember.user_id == user_id,
             OrganizationMember.organization_id == organization_id,
+            OrganizationMember.role.in_(_ROLES_BY_ACTION[action]),
         )
         .first()
         is not None
     )
 
 
-def user_organization_ids(db: Session, user: User) -> list[int]:
-    """Every organization this user belongs to. Empty for a fresh account."""
-    rows = (
-        db.query(OrganizationMember.organization_id)
-        .filter(OrganizationMember.user_id == user.id)
-        .all()
+def organization_role(
+    db: Session, user_id: int, organization_id: int
+) -> str | None:
+    """The caller's role in an organization, or None without membership."""
+    row = (
+        db.query(OrganizationMember.role)
+        .filter(
+            OrganizationMember.user_id == user_id,
+            OrganizationMember.organization_id == organization_id,
+        )
+        .first()
     )
-    return [row[0] for row in rows]
+    return row[0] if row is not None else None
 
 
 def require_organization(
-    db: Session, user: User, organization_id: int
+    db: Session,
+    user: User,
+    organization_id: int,
+    action: OrganizationAction = OrganizationAction.WRITE,
 ) -> Organization:
-    """The organization, if this user is a member of it. Otherwise 404."""
+    """An organization the user's role may perform ``action`` on, else 404."""
     organization = (
         db.query(Organization)
         .join(
@@ -94,6 +140,7 @@ def require_organization(
         .filter(
             Organization.id == organization_id,
             OrganizationMember.user_id == user.id,
+            OrganizationMember.role.in_(_ROLES_BY_ACTION[action]),
         )
         .first()
     )
@@ -102,8 +149,13 @@ def require_organization(
     return organization
 
 
-def require_facility(db: Session, user: User, facility_id: int) -> Facility:
-    """The facility, if this user belongs to its organization. Else 404."""
+def require_facility(
+    db: Session,
+    user: User,
+    facility_id: int,
+    action: OrganizationAction = OrganizationAction.WRITE,
+) -> Facility:
+    """A facility the user's organization role permits ``action`` on."""
     facility = (
         db.query(Facility)
         .join(
@@ -113,6 +165,7 @@ def require_facility(db: Session, user: User, facility_id: int) -> Facility:
         .filter(
             Facility.id == facility_id,
             OrganizationMember.user_id == user.id,
+            OrganizationMember.role.in_(_ROLES_BY_ACTION[action]),
         )
         .first()
     )
@@ -122,9 +175,12 @@ def require_facility(db: Session, user: User, facility_id: int) -> Facility:
 
 
 def require_emission_source(
-    db: Session, user: User, emission_source_id: int
+    db: Session,
+    user: User,
+    emission_source_id: int,
+    action: OrganizationAction = OrganizationAction.WRITE,
 ) -> EmissionSource:
-    """The source, walking source -> facility -> organization -> membership."""
+    """A source the user's organization role permits ``action`` on."""
     source = (
         db.query(EmissionSource)
         .join(Facility, Facility.id == EmissionSource.facility_id)
@@ -135,6 +191,7 @@ def require_emission_source(
         .filter(
             EmissionSource.id == emission_source_id,
             OrganizationMember.user_id == user.id,
+            OrganizationMember.role.in_(_ROLES_BY_ACTION[action]),
         )
         .first()
     )
@@ -143,8 +200,13 @@ def require_emission_source(
     return source
 
 
-def require_report(db: Session, user: User, report_id: int) -> Report:
-    """The report, if this user belongs to the organization it covers."""
+def require_report(
+    db: Session,
+    user: User,
+    report_id: int,
+    action: OrganizationAction = OrganizationAction.WRITE,
+) -> Report:
+    """A report the user's organization role permits ``action`` on."""
     report = (
         db.query(Report)
         .join(
@@ -154,6 +216,7 @@ def require_report(db: Session, user: User, report_id: int) -> Report:
         .filter(
             Report.id == report_id,
             OrganizationMember.user_id == user.id,
+            OrganizationMember.role.in_(_ROLES_BY_ACTION[action]),
         )
         .first()
     )

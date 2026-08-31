@@ -6,10 +6,10 @@ every other user's organizations, facilities, records and reports. Every
 access check now resolves to "is there a row here for this (user,
 organization) pair?" — see app/authorization.py.
 
-Roles: exactly one exists today, OWNER, and no code branches on it. The
-column is here so that adding a second role later is a data change rather
-than a migration, and it is constrained at the database level so an invalid
-role cannot be written even by a direct SQL insert.
+Roles are organization-scoped. OWNER and ADMIN have full access; EMPLOYEE
+has read access plus append-only consumption entry. Authorization decisions
+live in app/authorization.py rather than on the model, while the database
+constraint here makes every other role value unrepresentable.
 """
 
 from datetime import datetime, timezone
@@ -27,13 +27,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
-# The only role that exists. Assigned explicitly at every call site — the
-# column deliberately has no default, in database or in Python, so a code
-# path that forgets to set it fails loudly on a NOT NULL violation instead
-# of silently minting a membership with an implied role.
 ROLE_OWNER = "OWNER"
+ROLE_ADMIN = "ADMIN"
+ROLE_EMPLOYEE = "EMPLOYEE"
 
-VALID_ROLES = frozenset({ROLE_OWNER})
+# Assigned explicitly at every call site. The column deliberately has no
+# default, in database or in Python, so a code path that forgets to set a
+# role fails loudly instead of silently minting an implied permission tier.
+VALID_ROLES = frozenset({ROLE_OWNER, ROLE_ADMIN, ROLE_EMPLOYEE})
 
 
 class OrganizationMember(Base):
@@ -64,11 +65,11 @@ class OrganizationMember(Base):
         UniqueConstraint(
             "user_id", "organization_id", name="uq_organization_members_user_org"
         ),
-        # Defence in depth: the application only ever writes ROLE_OWNER, but
-        # this makes an invalid role unrepresentable regardless of how the
-        # row got there.
+        # Defence in depth: invalid roles stay unrepresentable regardless of
+        # whether a row is written through the application or direct SQL.
         CheckConstraint(
-            "role IN ('OWNER')", name="ck_organization_members_role"
+            "role IN ('OWNER', 'ADMIN', 'EMPLOYEE')",
+            name="ck_organization_members_role",
         ),
         Index("ix_organization_members_user_id", "user_id"),
         Index("ix_organization_members_organization_id", "organization_id"),

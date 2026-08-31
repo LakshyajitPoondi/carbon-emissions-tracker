@@ -10,7 +10,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.authorization import require_emission_source, require_facility
+from app.authorization import (
+    OrganizationAction,
+    require_emission_source,
+    require_facility,
+)
 from app.database import get_db
 from app.models.emission_source import EmissionSource, SourceTypeEnum
 from app.models.user import User
@@ -38,7 +42,7 @@ def create_emission_source(
 ):
     # Replaces the old existence check: a facility in someone else's
     # organization is indistinguishable from one that does not exist.
-    require_facility(db, current_user, body.facility_id)
+    require_facility(db, current_user, body.facility_id, OrganizationAction.WRITE)
 
     if body.barcode_value is not None:
         existing = (
@@ -83,7 +87,7 @@ def list_emission_sources(
 ):
     # 404 rather than an empty list: an empty list would still confirm the
     # facility id exists.
-    require_facility(db, current_user, facility_id)
+    require_facility(db, current_user, facility_id, OrganizationAction.VIEW)
 
     sources = (
         db.query(EmissionSource)
@@ -113,7 +117,9 @@ def get_emission_source_label(
     so it always reflects the current source name, facility, and barcode.
     """
     # Walks source -> facility -> organization -> membership.
-    source = require_emission_source(db, current_user, emission_source_id)
+    source = require_emission_source(
+        db, current_user, emission_source_id, OrganizationAction.VIEW
+    )
 
     # A label whose barcode field is empty is worse than no label — it
     # looks scannable, prints, and then fails silently at the scanner. Fail

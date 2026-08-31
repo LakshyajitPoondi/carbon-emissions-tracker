@@ -8,6 +8,7 @@ import { useAppState } from "../context/AppStateContext";
 import { useOrganizationLiveUpdates } from "../hooks/useOrganizationLiveUpdates";
 import type { Report, ReportStatus, ReportSummary } from "../types";
 import { daysAgoInputValue, formatDateTime, formatKgCo2e, todayInputValue } from "../utils/format";
+import { hasOrganizationWriteAccess } from "../utils/organizationRoles";
 import { GHG_SCOPE_TOTAL_CAPTION } from "../utils/sourceTypePresentation";
 
 // How often to poll GET /reports/{id} for a report that's still
@@ -53,15 +54,23 @@ export function ReportsPage() {
     );
   }
 
-  return <ReportsForOrganization organizationId={organization.id} organizationName={organization.name} />;
+  return (
+    <ReportsForOrganization
+      organizationId={organization.id}
+      organizationName={organization.name}
+      canGenerate={hasOrganizationWriteAccess(organization.role)}
+    />
+  );
 }
 
 function ReportsForOrganization({
   organizationId,
   organizationName,
+  canGenerate,
 }: {
   organizationId: number;
   organizationName: string;
+  canGenerate: boolean;
 }) {
   const [periodStart, setPeriodStart] = useState(daysAgoInputValue(30));
   const [periodEnd, setPeriodEnd] = useState(todayInputValue());
@@ -195,46 +204,55 @@ function ReportsForOrganization({
       </p>
       <p className="result-panel__meta">{GHG_SCOPE_TOTAL_CAPTION}</p>
 
-      <section className="card">
-        <h2>Generate a report</h2>
-        <form className="filter-bar" onSubmit={handleGenerate}>
-          <div className="field">
-            <label htmlFor="report-start">Period start</label>
-            <input
-              id="report-start"
-              type="date"
-              value={periodStart}
-              onChange={(e) => setPeriodStart(e.target.value)}
-              required
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="report-end">Period end</label>
-            <input
-              id="report-end"
-              type="date"
-              value={periodEnd}
-              onChange={(e) => setPeriodEnd(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" disabled={generating}>
-            {generating ? "Generating…" : "Generate report"}
-          </button>
-        </form>
-        {generateError !== null && <ErrorBanner error={generateError} />}
-        {generated &&
-          (generated.status === "final" ? (
-            <p className="selection-confirm">
-              Report #{generated.id} generated — {formatKgCo2e(generated.total_emissions_kg_co2e ?? "0")} kg CO2e
-              combined Scope 1–3 total.
-            </p>
-          ) : (
-            <LoadingState
-              label={`Report #${generated.id} is ${STATUS_LABEL[generated.status].toLowerCase()}… it'll appear below automatically once it's ready.`}
-            />
-          ))}
-      </section>
+      {canGenerate ? (
+        <section className="card">
+          <h2>Generate a report</h2>
+          <form className="filter-bar" onSubmit={handleGenerate}>
+            <div className="field">
+              <label htmlFor="report-start">Period start</label>
+              <input
+                id="report-start"
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
+                required
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="report-end">Period end</label>
+              <input
+                id="report-end"
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" disabled={generating}>
+              {generating ? "Generating…" : "Generate report"}
+            </button>
+          </form>
+          {generateError !== null && <ErrorBanner error={generateError} />}
+          {generated &&
+            (generated.status === "final" ? (
+              <p className="selection-confirm">
+                Report #{generated.id} generated — {formatKgCo2e(generated.total_emissions_kg_co2e ?? "0")} kg CO2e
+                combined Scope 1–3 total.
+              </p>
+            ) : (
+              <LoadingState
+                label={`Report #${generated.id} is ${STATUS_LABEL[generated.status].toLowerCase()}… it'll appear below automatically once it's ready.`}
+              />
+            ))}
+        </section>
+      ) : (
+        <section className="card">
+          <h2>Generate a report</h2>
+          <p className="empty-state">
+            EMPLOYEE access can view existing reports; OWNER or ADMIN is required to generate one.
+          </p>
+        </section>
+      )}
 
       <section className="card">
         <h2>Past reports</h2>

@@ -11,7 +11,11 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.authorization import require_organization, require_report
+from app.authorization import (
+    OrganizationAction,
+    require_organization,
+    require_report,
+)
 from app.database import get_db
 from app.models.user import User
 from app.models.report import Report, ReportStatusEnum
@@ -58,7 +62,9 @@ def generate_report(
 ):
     # Reports aggregate an entire organization's emissions — the single most
     # sensitive read in the system, so it is scoped like any other.
-    require_organization(db, current_user, body.organization_id)
+    require_organization(
+        db, current_user, body.organization_id, OrganizationAction.WRITE
+    )
 
     report = Report(
         organization_id=body.organization_id,
@@ -94,7 +100,7 @@ def get_report(
     current_user: User = Depends(get_current_user),
 ):
     # Walks report.organization_id -> membership.
-    report = require_report(db, current_user, report_id)
+    report = require_report(db, current_user, report_id, OrganizationAction.VIEW)
     return _detail_response(report)
 
 
@@ -107,7 +113,7 @@ def list_reports(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_organization(db, current_user, organization_id)
+    require_organization(db, current_user, organization_id, OrganizationAction.VIEW)
 
     reports = (
         db.query(Report)

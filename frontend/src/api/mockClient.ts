@@ -76,7 +76,13 @@ const nextId = {
 };
 
 const organizations: Organization[] = [
-  { id: 1, name: "Acme Manufacturing", industry_type: "manufacturing", created_at: "2026-08-01T09:00:00Z" },
+  {
+    id: 1,
+    name: "Acme Manufacturing",
+    industry_type: "manufacturing",
+    created_at: "2026-08-01T09:00:00Z",
+    role: "OWNER",
+  },
 ];
 
 const facilities: Facility[] = [
@@ -340,6 +346,7 @@ export const mockClient: ApiClient = {
       name: req.name.trim(),
       industry_type: req.industry_type.trim(),
       created_at: nowIso(),
+      role: "OWNER",
     };
     organizations.push(org);
     return org;
