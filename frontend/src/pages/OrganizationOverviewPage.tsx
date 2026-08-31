@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "../api";
+import { DateRangeFilter } from "../components/DateRangeFilter";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
@@ -104,35 +105,23 @@ function OverviewForOrganization({ organizationId }: { organizationId: number })
     <main className="page">
       <h1>{overview ? overview.name : "Organization Overview"}</h1>
       <p className="page__intro">
-        GHG Protocol Scope 1, 2 and 3 emissions across every facility, from a single GraphQL query.
-        {overview && <span className="result-panel__meta"> {overview.industryType}</span>}
+        GHG Protocol Scope 1, 2 and 3 emissions across every facility.
       </p>
+      {overview && (
+        <p className="page__meta">
+          <strong>Industry:</strong> <span className="page__meta-value">{overview.industryType}</span>
+        </p>
+      )}
 
-      <form className="filter-bar" onSubmit={handleSubmit}>
-        <div className="field">
-          <label htmlFor="overview-start">Start date</label>
-          <input
-            id="overview-start"
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            required
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="overview-end">End date</label>
-          <input
-            id="overview-end"
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            required
-          />
-        </div>
-        <button type="submit" disabled={status === "loading"}>
-          {status === "loading" ? "Loading…" : "View"}
-        </button>
-      </form>
+      <DateRangeFilter
+        idPrefix="overview"
+        startDate={startDate}
+        endDate={endDate}
+        onStartDateChange={setStartDate}
+        onEndDateChange={setEndDate}
+        onSubmit={handleSubmit}
+        loading={status === "loading"}
+      />
 
       {status === "loading" && <LoadingState label="Loading organization overview…" />}
       {status === "error" && <ErrorBanner error={error} onRetry={load} />}

@@ -201,6 +201,20 @@ table {
   margin: -0.6rem 0 0;
 }
 
+.page__meta {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin: -0.75rem 0 0;
+}
+
+.page__meta strong {
+  color: var(--color-text);
+}
+
+.page__meta-value {
+  text-transform: capitalize;
+}
+
 .page--narrow {
   max-width: 420px;
 }
@@ -261,6 +275,10 @@ table {
   gap: 1rem;
   align-items: flex-end;
   flex-wrap: wrap;
+}
+
+.date-range-filter__submit {
+  align-self: flex-end;
 }
 
 .selection-confirm {

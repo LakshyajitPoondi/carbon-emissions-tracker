@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "../api";
+import { DateRangeFilter } from "../components/DateRangeFilter";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
@@ -101,31 +102,15 @@ function DashboardForFacility({ facilityId, facilityName }: { facilityId: number
         )}
       </p>
 
-      <form className="filter-bar" onSubmit={handleSubmit}>
-        <div className="field">
-          <label htmlFor="dashboard-start">Start date</label>
-          <input
-            id="dashboard-start"
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            required
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="dashboard-end">End date</label>
-          <input
-            id="dashboard-end"
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            required
-          />
-        </div>
-        <button type="submit" disabled={status === "loading"}>
-          {status === "loading" ? "Loading…" : "View"}
-        </button>
-      </form>
+      <DateRangeFilter
+        idPrefix="dashboard"
+        startDate={startDate}
+        endDate={endDate}
+        onStartDateChange={setStartDate}
+        onEndDateChange={setEndDate}
+        onSubmit={handleSubmit}
+        loading={status === "loading"}
+      />
 
       {status === "loading" && <LoadingState label="Calculating emissions summary…" />}
       {status === "error" && <ErrorBanner error={error} onRetry={load} />}
