@@ -142,6 +142,16 @@ table {
   grid-template-rows: var(--topbar-height) minmax(0, 1fr);
 }
 
+.app-shell--public {
+  grid-template-areas:
+    "topbar"
+    "content";
+  grid-template-columns: minmax(0, 1fr);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(124, 58, 237, 0.12), transparent 28rem),
+    var(--color-bg);
+}
+
 .app-topbar {
   grid-area: topbar;
   position: fixed;
@@ -158,6 +168,14 @@ table {
   align-items: center;
   gap: 1.25rem;
   padding: 0 1.5rem;
+}
+
+.app-topbar--public {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-topbar--public .app-topbar__brand-group {
+  justify-self: center;
 }
 
 .app-topbar__brand-group,
@@ -365,6 +383,10 @@ table {
   background: var(--color-bg);
 }
 
+.app-content--public {
+  min-height: calc(100vh - var(--topbar-height));
+}
+
 .app-shell__scrim {
   display: none;
 }
@@ -420,6 +442,144 @@ table {
 .link-button:hover:not(:disabled) {
   background: transparent;
   color: var(--color-primary);
+}
+
+/* ---------- Authentication ---------- */
+
+.auth-page {
+  min-height: calc(100vh - var(--topbar-height));
+  width: 100%;
+  padding: clamp(2rem, 6vh, 4.5rem) 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.auth-card,
+.demo-access {
+  width: min(100%, 440px);
+}
+
+.auth-card {
+  padding: clamp(1.5rem, 4vw, 2.25rem);
+  overflow: visible;
+}
+
+.auth-card__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--color-text);
+  font-size: 1.08rem;
+  font-weight: 750;
+}
+
+.auth-card__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 10px;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-weight: 800;
+  box-shadow: var(--shadow-accent);
+}
+
+.auth-card__tagline {
+  margin: -0.2rem auto 0.35rem;
+  max-width: 32ch;
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: 0.92rem;
+}
+
+.auth-card__heading {
+  margin: 0.2rem 0 0.35rem;
+  text-align: center;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.auth-form .field label {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.auth-form input {
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+}
+
+.auth-form__submit {
+  align-self: stretch;
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.72rem 1rem;
+  font-weight: 700;
+}
+
+.auth-card__switch {
+  margin: 0;
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: 0.92rem;
+}
+
+.auth-card__switch .link-button {
+  display: inline;
+  font-weight: 700;
+}
+
+.demo-access {
+  padding: 1rem 1.1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  border-radius: var(--radius);
+  background: var(--color-primary-soft);
+}
+
+.demo-access h2 {
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
+}
+
+.demo-access p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.demo-access__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.demo-access__button {
+  width: 100%;
+  justify-content: center;
+  background: var(--color-surface);
+  color: var(--color-primary-dark);
+  border: 1px solid var(--color-primary);
+  font-size: 0.8rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.demo-access__button:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 
 /* ---------- Cards & forms ---------- */
@@ -864,6 +1024,10 @@ table {
     display: none;
   }
 
+  .app-topbar--public .app-topbar__mark {
+    display: inline-grid;
+  }
+
   .app-topbar__selection {
     display: none;
   }
@@ -938,6 +1102,14 @@ table {
 
   .card__col {
     min-width: 0;
+  }
+
+  .demo-access {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .demo-access__actions {
+    width: 100%;
   }
 
   .filter-bar {

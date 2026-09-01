@@ -4,8 +4,15 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { Location } from "react-router-dom";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useAuth } from "../context/AuthContext";
+import { ENABLE_DEMO_ACCESS } from "../api/config";
 
 type Mode = "login" | "register";
+
+const DEMO_PASSWORD = "DemoPass123!";
+const DEMO_ACCOUNTS = [
+  { label: "Explore as Owner/Admin", email: "admin-demo@gmail.com" },
+  { label: "Explore as Employee", email: "employee-demo@gmail.com" },
+] as const;
 
 interface LocationState {
   from?: Location;
@@ -46,17 +53,28 @@ export function AuthPage() {
     setError(null);
   }
 
-  return (
-    <main className="page page--narrow">
-      <h1>{mode === "login" ? "Sign in" : "Create account"}</h1>
-      <p className="page__intro">
-        {mode === "login"
-          ? "Sign in to track your organization's consumption and emissions."
-          : "Create an account to start tracking your organization's consumption and emissions."}
-      </p>
+  function fillDemoCredentials(demoEmail: string) {
+    setMode("login");
+    setEmail(demoEmail);
+    setPassword(DEMO_PASSWORD);
+    setError(null);
+  }
 
-      <section className="card">
-        <form className="card__col" onSubmit={handleSubmit}>
+  return (
+    <main className="auth-page">
+      <section className="card auth-card">
+        <div className="auth-card__brand">
+          <span className="auth-card__mark" aria-hidden="true">C</span>
+          <span>Carbon Emissions Tracker</span>
+        </div>
+        <p className="auth-card__tagline">
+          Measure smarter. Reduce emissions. Report with confidence.
+        </p>
+        <h1 className="auth-card__heading">
+          {mode === "login" ? "Sign In" : "Create Account"}
+        </h1>
+
+        <form className="auth-form" onSubmit={handleSubmit}>
           <div className="field">
             <label htmlFor="auth-email">Email</label>
             <input
@@ -82,22 +100,46 @@ export function AuthPage() {
               placeholder={mode === "register" ? "At least 8 characters" : "Your password"}
             />
           </div>
-          <button type="submit" disabled={submitting}>
+          <button type="submit" className="auth-form__submit" disabled={submitting}>
             {submitting
               ? mode === "login"
                 ? "Signing in…"
                 : "Creating account…"
               : mode === "login"
-                ? "Sign in"
-                : "Create account"}
+                ? "Sign In"
+                : "Create Account"}
           </button>
           {error !== null && <ErrorBanner error={error} />}
         </form>
 
-        <button type="button" className="link-button" onClick={toggleMode}>
-          {mode === "login" ? "Need an account? Create one" : "Already have an account? Sign in"}
-        </button>
+        <p className="auth-card__switch">
+          {mode === "login" ? "Don't have an account?" : "Already have an account?"}{" "}
+          <button type="button" className="link-button" onClick={toggleMode}>
+            {mode === "login" ? "Register" : "Sign In"}
+          </button>
+        </p>
       </section>
+
+      {mode === "login" && ENABLE_DEMO_ACCESS && (
+        <aside className="demo-access" aria-labelledby="demo-access-title">
+          <div>
+            <h2 id="demo-access-title">Demo Access</h2>
+            <p>Choose a role to fill the sign-in form. You stay in control of submitting it.</p>
+          </div>
+          <div className="demo-access__actions">
+            {DEMO_ACCOUNTS.map((account) => (
+              <button
+                type="button"
+                className="demo-access__button"
+                key={account.email}
+                onClick={() => fillDemoCredentials(account.email)}
+              >
+                {account.label}
+              </button>
+            ))}
+          </div>
+        </aside>
+      )}
     </main>
   );
 }

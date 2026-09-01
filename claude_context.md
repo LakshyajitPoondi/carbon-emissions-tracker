@@ -184,9 +184,13 @@ additive/non-breaking.
 - Railway's backend "Custom Start Command" chains
   `alembic upgrade head && python -m app.seed && uvicorn ...` — migrations
   and seeding run on **every** deploy, not just the first.
-- `app/seed.py` is idempotent: only touches `emission_factors`, skips any
-  `(source_type, region)` pair that already exists, never deletes/
-  truncates anything. Confirmed safe by direct code read.
+- `app/seed.py` is idempotent: always seeds/skips reference
+  `emission_factors`; optionally seeds a dedicated public demo only when
+  `SEED_DEMO_ACCOUNTS=true`. Demo seeding is off by default, scoped to
+  `Demo Organization`, and never overwrites existing rows. Railway runs
+  the seed on every backend deploy, so this variable is the production
+  opt-in switch. Setting it false after a prior true deploy stops seed
+  work but does not delete/revoke already-created demo accounts.
 - **Railway does not read `docker-compose.yml`.** The Celery worker's start
   command must be set manually in the Railway dashboard (Settings ->
   Deploy -> Start Command) for the `celery-worker` service:
@@ -218,7 +222,8 @@ additive/non-breaking.
   failure mode is real and worth checking first: (1) exact frontend origin
   in the address bar vs (2) Railway's `CORS_ALLOWED_ORIGINS` vs (3)
   Vercel's `VITE_API_BASE_URL`/`VITE_USE_MOCK_API`.
-- Frontend env vars (`VITE_USE_MOCK_API`, `VITE_API_BASE_URL`) must be set
+- Frontend env vars (`VITE_USE_MOCK_API`, `VITE_API_BASE_URL`, and the
+  opt-in `VITE_ENABLE_DEMO_ACCESS`) must be set
   in **Vercel's** project settings for production — `frontend/.env.local`
   is local-only/gitignored and not deployed.
 - Verified (as of RBAC + Product Library + Theme Overhaul merge): none of
@@ -243,7 +248,7 @@ additive/non-breaking.
 - Backend: `pytest tests/ -v` — full suite run before/after every task.
   New tasks add targeted regression tests
   (`test_celery_imports.py`, `test_roles.py`, etc.). ~229 passing as of the
-  Product Library merge.
+  Product Library merge; 242 passing after the sign-in/demo-seed work.
 - Frontend: `npx tsc -b --noEmit` (must be `-b`, not a bare `--noEmit` —
   `frontend/tsconfig.json` is a solution-style config with `"files": []`
   referencing `tsconfig.app.json`/`tsconfig.node.json`, so a bare
@@ -376,7 +381,7 @@ and should continue:
       requests (linked by org FK, not code value), never included in
       ordinary organization responses/listings, unknown/malformed codes
       return the identical masked 404.
-    - New endpoints (all approved, not yet built):
+    - New endpoints (all approved and implemented):
       `GET/POST .../join-code(/regenerate)` (WRITE),
       `POST /join-requests` (authenticated, body `{"join_code": "..."}`),
       `GET /join-requests/me` (self-scoped — lets a user see their own
@@ -442,6 +447,41 @@ and should continue:
       verification organization/accounts created during the real
       two-account walkthrough were intentionally left in the local dev
       database (harmless test data, not production).
+14. **Sign-in redesign + opt-in demo environment** (implemented on
+    `agent/core/refinements`; no contract/schema change):
+    - Public auth routes render a centered purple-theme sign-in card and
+      never mount the AppShell sidebar. Authenticated shell/nav is
+      unchanged. Demo Access buttons fill credentials only; they do not
+      submit automatically.
+    - Frontend demo panel is gated by `VITE_ENABLE_DEMO_ACCESS=true`;
+      backend seed is independently gated by
+      `SEED_DEMO_ACCOUNTS=true`. Both default false.
+    - Public demo credentials: `admin-demo@gmail.com` (OWNER) and
+      `employee-demo@gmail.com` (EMPLOYEE), both password
+      `DemoPass123!`.
+    - Demo fixture: 7 memberships (1 OWNER / 2 ADMIN / 4 EMPLOYEE), 3
+      facilities, 8 sources covering ENERGY/FUEL/RESOURCE, 24 August 2026
+      consumption records + calculations, 5 Products, and 1 FINAL report.
+      Five stable internal-use EAN-13 PNGs live under
+      `backend/demo_assets/barcodes/`; generator is dependency-free.
+    - Product barcode field is `products.barcode` (the task prompt called
+      it `barcode_value`). Asset Scan currently resolves only
+      `emission_sources.barcode_value`, so the Product PNGs decode as
+      EAN-13 but do not resolve in the app's Asset Scan endpoint. No silent
+      API-contract expansion was made; product scanning needs a separate
+      proposal/approval.
+    - Audit-log audit found a partial end-to-end feature: migration/model,
+      request middleware, REST endpoint, contract, and backend tests exist;
+      no frontend API method/page/nav exists.
+    - Local seed counts before -> after (unchanged on second run): orgs
+      `0 -> 1`, memberships `0 -> 7`, facilities `0 -> 3`, sources
+      `0 -> 8`, records `0 -> 24`, calculations `0 -> 24`, products
+      `0 -> 5`, reports `0 -> 1`. Real non-mock Owner and Employee login
+      walkthroughs passed; Dashboard/Overview/Reports/Products/Members
+      showed seeded data. Full backend suite: 239 before, 242 after.
+      Frontend typecheck/build/lint passed (lint has existing warnings).
+    - Last-used-organization auto-selection remains proposal-only. No
+      user column, migration, login response change, or endpoint was added.
 
 ## Open items / not yet done (as of this handoff)
 
@@ -462,6 +502,16 @@ and should continue:
   and its migration around the `email` column — flagged during item 13's
   verification but not caused by it and not fixed. Worth a dedicated look
   at some point, not urgent.
+- Audit logging has backend persistence/middleware/read endpoint/tests but
+  no frontend API client method, page, or navigation. Treat it as a
+  partially implemented user-facing feature, not end-to-end UI coverage.
+- Product scanning is not part of Asset Scan: Product uses `barcode`, while
+  Asset Scan looks up only EmissionSource `barcode_value`. The demo Product
+  PNGs are valid/scannable EAN-13 files, but app-level Product lookup needs
+  an explicitly approved contract design.
+- Last-used organization auto-selection is not implemented. A proposal is
+  pending human review; do not change login/session contracts before
+  approval.
 - Repo-wide CRLF/LF line-ending churn (see Git rules above) remains
   unfixed — cosmetic/diff-noise only, not a functional bug, not
   prioritized. One more file added to the known list:

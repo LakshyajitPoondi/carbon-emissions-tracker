@@ -119,6 +119,22 @@ export function AppShell() {
     setMobileNavOpen(false);
   }
 
+  if (!isAuthenticated) {
+    return (
+      <div className="app-shell app-shell--public">
+        <header className="app-topbar app-topbar--public">
+          <div className="app-topbar__brand-group">
+            <span className="app-topbar__mark" aria-hidden="true">C</span>
+            <span className="app-topbar__brand">Carbon Emissions Tracker</span>
+          </div>
+        </header>
+        <div className="app-content app-content--public">
+          <Outlet />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="app-topbar">
@@ -139,25 +155,17 @@ export function AppShell() {
           <span className="app-topbar__brand">Carbon Emissions Tracker</span>
         </div>
 
-        {isAuthenticated && (
-          <div className="app-topbar__selection" aria-live="polite">
-            <span>{organization ? organization.name : "No organization selected"}</span>
-            <span className="app-topbar__selection-divider" aria-hidden="true">/</span>
-            <span>{facility ? facility.name : "No facility selected"}</span>
-          </div>
-        )}
+        <div className="app-topbar__selection" aria-live="polite">
+          <span>{organization ? organization.name : "No organization selected"}</span>
+          <span className="app-topbar__selection-divider" aria-hidden="true">/</span>
+          <span>{facility ? facility.name : "No facility selected"}</span>
+        </div>
 
         <div className="app-topbar__account">
-          {isAuthenticated ? (
-            <>
-              <span className="app-topbar__email">{email}</span>
-              <button type="button" className="app-topbar__logout" onClick={handleLogout}>
-                Sign out
-              </button>
-            </>
-          ) : (
-            <NavLink to="/login" className="app-topbar__signin">Sign in</NavLink>
-          )}
+          <span className="app-topbar__email">{email}</span>
+          <button type="button" className="app-topbar__logout" onClick={handleLogout}>
+            Sign out
+          </button>
         </div>
       </header>
 
@@ -165,9 +173,8 @@ export function AppShell() {
         id="app-sidebar"
         className={`app-sidebar${mobileNavOpen ? " app-sidebar--open" : ""}`}
       >
-        {isAuthenticated ? (
-          <>
-            <nav className="app-sidebar__nav" aria-label="Main navigation">
+        <>
+          <nav className="app-sidebar__nav" aria-label="Main navigation">
               <div className="app-sidebar__context" aria-live="polite">
                 <strong>{organization ? organization.name : "No organization selected"}</strong>
                 <span>{facility ? facility.name : "No facility selected"}</span>
@@ -191,30 +198,15 @@ export function AppShell() {
                   ))}
                 </div>
               ))}
-            </nav>
-            <div className="app-sidebar__account">
-              <span className="app-sidebar__section-label">Account</span>
-              <button type="button" className="app-sidebar__link" onClick={handleLogout}>
-                <NavIcon name="account" />
-                <span>Sign out</span>
-              </button>
-            </div>
-          </>
-        ) : (
-          <nav className="app-sidebar__nav" aria-label="Account navigation">
-            <div className="app-sidebar__section">
-              <span className="app-sidebar__section-label">Account</span>
-              <NavLink
-                to="/login"
-                className={navLinkClass}
-                onClick={closeMobileNav}
-              >
-                <NavIcon name="account" />
-                <span>Sign in</span>
-              </NavLink>
-            </div>
           </nav>
-        )}
+          <div className="app-sidebar__account">
+            <span className="app-sidebar__section-label">Account</span>
+            <button type="button" className="app-sidebar__link" onClick={handleLogout}>
+              <NavIcon name="account" />
+              <span>Sign out</span>
+            </button>
+          </div>
+        </>
       </aside>
 
       {mobileNavOpen && (

@@ -5,6 +5,11 @@
  */
 export const USE_MOCK_API: boolean = import.meta.env.VITE_USE_MOCK_API !== "false";
 
+/** Public demo credentials are opt-in so a production deployment never
+ * advertises accounts that its backend did not deliberately seed. */
+export const ENABLE_DEMO_ACCESS: boolean =
+  import.meta.env.VITE_ENABLE_DEMO_ACCESS === "true";
+
 export const API_BASE_URL: string =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api";
 
