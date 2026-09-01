@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from app.services.barcodes import ean13_from_sequence
+
 DEMO_ORGANIZATION_NAME = "Demo Organization"
 DEMO_INDUSTRY_TYPE = "Manufacturing (Demo)"
 DEMO_PASSWORD = "DemoPass123!"
@@ -96,18 +98,6 @@ DEMO_RECORD_TIMES = (
     datetime(2026, 8, 15, 9, 0, tzinfo=timezone.utc),
     datetime(2026, 8, 25, 9, 0, tzinfo=timezone.utc),
 )
-
-
-def ean13_from_sequence(sequence: int) -> str:
-    """Return a valid internal-use EAN-13 value from a positive sequence."""
-    if sequence < 0 or sequence > 9_999_999_999:
-        raise ValueError("sequence must fit in ten digits")
-    body = f"20{sequence:010d}"
-    weighted_sum = sum(
-        int(digit) * (1 if index % 2 == 0 else 3)
-        for index, digit in enumerate(body)
-    )
-    return f"{body}{(-weighted_sum) % 10}"
 
 
 DEMO_PRODUCTS = (

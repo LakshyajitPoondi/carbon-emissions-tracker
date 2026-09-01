@@ -1,6 +1,12 @@
-"""Product Library CRUD, validation, tenant scoping, and role tests."""
+"""Product Library CRUD, barcode generation, scoping, and role tests."""
+
+import io
+
+from PIL import Image
+from pyzbar.pyzbar import decode
 
 from app.models.organization_member import ROLE_ADMIN, ROLE_EMPLOYEE
+from app.services.barcodes import is_valid_ean13
 
 
 def _organization(client, name="Product Org"):
@@ -105,9 +111,45 @@ class TestProductCrud:
         assert deleted.content == b""
         assert client.get(f"/api/products/{product['id']}").status_code == 404
 
+    def test_missing_barcode_is_generated_with_persisted_png(self, client):
+        organization = _organization(client)
+        first = _create_product(
+            client, organization["id"], name="Generated one", barcode=None
+        )
+        second = _create_product(
+            client, organization["id"], name="Generated two", barcode="   "
+        )
+
+        assert first["barcode"] == "2000000000015"
+        assert second["barcode"] == "2000000000022"
+        assert is_valid_ean13(first["barcode"])
+        assert is_valid_ean13(second["barcode"])
+
+        image = client.get(f"/api/products/{first['id']}/barcode-image")
+        assert image.status_code == 200
+        assert image.headers["content-type"] == "image/png"
+        decoded = decode(Image.open(io.BytesIO(image.content)))
+        assert [(item.type, item.data.decode()) for item in decoded] == [
+            ("EAN13", first["barcode"])
+        ]
+
+    def test_valid_supplied_ean_gets_an_image_and_non_ean_does_not(self, client):
+        organization = _organization(client)
+        ean = _create_product(
+            client, organization["id"], name="Supplied EAN", barcode="2000000001234"
+        )
+        arbitrary = _create_product(
+            client, organization["id"], name="Arbitrary code", barcode="SKU-123"
+        )
+
+        assert client.get(f"/api/products/{ean['id']}/barcode-image").status_code == 200
+        missing = client.get(f"/api/products/{arbitrary['id']}/barcode-image")
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == "NOT_FOUND"
+
 
 class TestProductValidation:
-    def test_barcode_is_nullable_and_blank_normalizes_to_null(self, client):
+    def test_null_and_blank_barcodes_trigger_generation(self, client):
         organization = _organization(client)
         first = _create_product(
             client, organization["id"], name="No barcode one", barcode=None
@@ -115,8 +157,11 @@ class TestProductValidation:
         second = _create_product(
             client, organization["id"], name="No barcode two", barcode="   "
         )
-        assert first["barcode"] is None
-        assert second["barcode"] is None
+        assert first["barcode"] is not None
+        assert second["barcode"] is not None
+        assert first["barcode"] != second["barcode"]
+        assert is_valid_ean13(first["barcode"])
+        assert is_valid_ean13(second["barcode"])
 
     def test_barcode_is_unique_within_an_organization(self, client):
         organization = _organization(client)
@@ -176,6 +221,10 @@ class TestProductAuthorization:
             == 404
         )
         assert other_client.delete(f"/api/products/{product['id']}").status_code == 404
+        assert (
+            other_client.get(f"/api/products/{product['id']}/barcode-image").status_code
+            == 404
+        )
 
     def test_employee_can_view_but_cannot_mutate(
         self, client, other_client, other_user, grant_membership
@@ -189,6 +238,10 @@ class TestProductAuthorization:
             other_client.get(
                 "/api/products", params={"organization_id": organization["id"]}
             ).status_code
+            == 200
+        )
+        assert (
+            other_client.get(f"/api/products/{product['id']}/barcode-image").status_code
             == 200
         )
         assert (

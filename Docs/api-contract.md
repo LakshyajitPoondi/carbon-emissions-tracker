@@ -362,10 +362,15 @@ Product object:
 ```
 
 `emissions_value` is a non-negative decimal serialized as a string.
-`barcode` is nullable: omit it or send `null` when it is not known. Empty or
-whitespace-only barcode strings normalize to `null`. A non-null barcode is
-unique within one organization, but separate organizations may catalogue the
-same barcode. Barcode matching is case-sensitive.
+`barcode` remains nullable for legacy/manual records and may be explicitly
+cleared by PATCH. On creation, however, omitting it, sending `null`, or sending
+only whitespace causes the server to assign the next organization-local
+EAN-13 value from GS1's `20` restricted-circulation range and persist its PNG.
+A non-null barcode is unique within one organization, but separate
+organizations may catalogue the same barcode. Barcode matching is
+case-sensitive. A supplied, valid EAN-13 also gets a persisted PNG; arbitrary
+non-EAN barcode strings remain accepted for backward compatibility but have no
+PNG representation.
 
 ### POST /products
 
@@ -387,6 +392,14 @@ inaccessible.
 
 All organization roles. Response `200`: one Product object. Missing and
 inaccessible products share the same masked `404 NOT_FOUND` response.
+
+### GET /products/{id}/barcode-image
+
+All organization roles (`VIEW` access). Response `200` is the Product's
+persisted PNG bytes with `Content-Type: image/png` and an inline filename of
+`product-{id}-barcode.png`. Missing/inaccessible products and Products without
+a generated image share the masked `404 NOT_FOUND` shape. This endpoint never
+generates or writes data during a GET.
 
 ### PATCH /products/{id}
 
@@ -451,23 +464,23 @@ Response `200`: array of emission source objects (each including `barcode_value`
 ## Asset Scan
 
 Merges the brief's barcode scanner + OpenCV + YOLO/Detectron2 requirements
-into one feature: point a webcam at an emission source's barcode label, get
-back the matching `emission_source`. See `docs/asset-scan-plan.md` for the
-full design rationale, including why a pretrained YOLOv8n (no custom
-training) is used only as an "is anything in frame" presence gate — it has
-no "barcode" class, so pyzbar/zbar does the actual decode and localization.
+into one feature: point a webcam at a barcode label and resolve either an
+emission source or a Product in the selected facility's organization. See
+`docs/asset-scan-plan.md` for the full design rationale, including why a
+pretrained YOLOv8n (no custom training) is used only as an "is anything in
+frame" presence gate — it has no "barcode" class, so pyzbar/zbar does the
+actual decode.
 
 ### POST /facilities/{facility_id}/asset-scan
 Request: `multipart/form-data` with a single `image` file field (JPEG or
 PNG, ≤5MB) — a frame captured from the browser's webcam via
 `canvas.toBlob()`.
 
-Response `200` — barcode decoded and matched:
+Response `200` — barcode decoded and matched to an emission source:
 ```json
 {
-  "decoded_value": "ENSRC-00042",
-  "bounding_box": { "x": 118, "y": 76, "width": 240, "height": 118 },
-  "emission_source": {
+  "match_type": "emission_source",
+  "data": {
     "id": 7,
     "facility_id": 1,
     "source_type": "ENERGY",
@@ -479,9 +492,33 @@ Response `200` — barcode decoded and matched:
   }
 }
 ```
-`bounding_box` is pixel coordinates in the submitted image, from the decoded
-barcode's own symbol polygon. No `confidence` field — the decode is a
-deterministic pass/fail, not a probabilistic score.
+
+Response `200` — barcode decoded and matched to a Product:
+```json
+{
+  "match_type": "product",
+  "data": {
+    "id": 14,
+    "organization_id": 1,
+    "name": "Recycled aluminium bottle",
+    "barcode": "2000000000145",
+    "composition": "70% recycled aluminium, 30% primary aluminium",
+    "emissions_value": "1.250000",
+    "emissions_unit": "kg CO2e/item",
+    "emissions_description": "Cradle-to-gate embodied emissions per finished bottle",
+    "source_reference": "Supplier EPD, 2026",
+    "created_at": "2026-09-01T09:10:00Z",
+    "updated_at": "2026-09-01T09:10:00Z"
+  }
+}
+```
+
+`match_type` is the discriminator and `data` is exactly the existing response
+object for that type. Lookup priority is emission source first, then Product.
+Both lookups are scoped to the selected facility's organization; Product
+matching is organization-wide because Products do not belong to facilities.
+No `confidence` field is returned — barcode decode is deterministic
+pass/fail. The endpoint remains fully read-only.
 
 Errors:
 - `404` if `facility_id` doesn't exist.
@@ -491,7 +528,7 @@ Errors:
   *something* in frame that just wasn't a readable barcode, vs. nothing at
   all — the `code` is the same either way, only `message` differs).
 - `422 BARCODE_NOT_MATCHED` if a barcode decoded successfully but no
-  emission source in this facility carries that `barcode_value`.
+  emission source or Product in the facility's organization carries it.
 
 ---
 

@@ -60,6 +60,33 @@ function delay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, LATENCY_MS));
 }
 
+function ean13FromSequence(sequence: number): string {
+  const body = `20${String(sequence).padStart(10, "0")}`;
+  const weighted = [...body].reduce(
+    (sum, digit, index) => sum + Number(digit) * (index % 2 === 0 ? 1 : 3),
+    0,
+  );
+  return `${body}${(10 - (weighted % 10)) % 10}`;
+}
+
+function isValidEan13(value: string): boolean {
+  return /^\d{13}$/.test(value) &&
+    [...value].reduce(
+      (sum, digit, index) => sum + Number(digit) * (index % 2 === 0 ? 1 : 3),
+      0,
+    ) % 10 === 0;
+}
+
+function nextProductBarcode(organizationId: number): string {
+  const sequences = products
+    .filter((product) => product.organization_id === organizationId)
+    .map((product) => product.barcode)
+    .filter((barcode): barcode is string => barcode?.startsWith("20") === true)
+    .filter(isValidEan13)
+    .map((barcode) => Number(barcode.slice(2, 12)));
+  return ean13FromSequence(Math.max(0, ...sequences) + 1);
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -759,7 +786,7 @@ export const mockClient: ApiClient = {
     ) {
       throw new ApiError("VALIDATION_ERROR", "Product fields are invalid", 422);
     }
-    const barcode = req.barcode?.trim() || null;
+    const barcode = req.barcode?.trim() || nextProductBarcode(req.organization_id);
     if (
       barcode &&
       products.some(
@@ -802,6 +829,24 @@ export const mockClient: ApiClient = {
   async getProduct(id: number) {
     await delay();
     return requireProduct(id);
+  },
+
+  async getProductBarcodeImage(id: number) {
+    await delay();
+    const product = requireProduct(id);
+    if (!product.barcode || !isValidEan13(product.barcode)) {
+      throw new ApiError(
+        "NOT_FOUND",
+        `Barcode image for product ${id} does not exist`,
+        404,
+      );
+    }
+    // Valid 1px PNG placeholder: mock mode models endpoint behavior, while
+    // scannability is verified against the real dependency-free renderer.
+    const base64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    return new Blob([bytes], { type: "image/png" });
   },
 
   async updateProduct(id: number, req: ProductUpdateRequest) {
@@ -886,9 +931,8 @@ export const mockClient: ApiClient = {
       throw new ApiError("NO_BARCODE_DETECTED", "No readable barcode found in frame", 422);
     }
     return {
-      decoded_value: source.barcode_value,
-      bounding_box: { x: 120, y: 84, width: 220, height: 96 },
-      emission_source: source,
+      match_type: "emission_source",
+      data: source,
     };
   },
 

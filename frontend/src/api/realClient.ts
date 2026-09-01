@@ -78,6 +78,31 @@ function requestMultipart<T>(path: string, formData: FormData): Promise<T> {
   });
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const token = getToken();
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+  } catch {
+    throw new ApiError("NETWORK_ERROR", "Could not reach the server. Is the backend running?", 0);
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiErrorBody | null;
+    if (res.status === 401) {
+      clearToken();
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
+    throw new ApiError(
+      body?.error?.code ?? "UNKNOWN_ERROR",
+      body?.error?.message ?? `Request failed with status ${res.status}`,
+      res.status,
+    );
+  }
+  return res.blob();
+}
+
 /** The one GraphQL query this app makes. Declared as a constant so the shape
  * stays next to the type it fills (see types/organizationOverview.ts).
  *
@@ -259,6 +284,8 @@ export const realClient: ApiClient = {
     request(`/products${query({ organization_id: organizationId })}`),
 
   getProduct: (id) => request(`/products/${id}`),
+
+  getProductBarcodeImage: (id) => requestBlob(`/products/${id}/barcode-image`),
 
   updateProduct: (id, req) =>
     request(`/products/${id}`, { method: "PATCH", body: JSON.stringify(req) }),

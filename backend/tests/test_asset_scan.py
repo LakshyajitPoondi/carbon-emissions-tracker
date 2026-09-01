@@ -1,9 +1,7 @@
 """Tests for POST /api/facilities/{facility_id}/asset-scan.
 
-Covers: successful decode+match, BARCODE_NOT_MATCHED (decoded but unmatched),
-NO_BARCODE_DETECTED in both sub-cases (an object was in frame vs. nothing at
-all), and that the YOLO model is loaded exactly once at startup, never
-per-request.
+Covers both discriminated match types, organization scoping and priority,
+BARCODE_NOT_MATCHED, NO_BARCODE_DETECTED, and one-time YOLO startup loading.
 """
 
 import io
@@ -70,7 +68,7 @@ class FakeYoloModel:
 
 
 class TestAssetScanSuccess:
-    def test_decode_and_match(self, client):
+    def test_decode_and_match_emission_source(self, client):
         _, facility = _create_org_facility(client)
         source = client.post(
             "/api/emission-sources",
@@ -89,10 +87,136 @@ class TestAssetScanSuccess:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["decoded_value"] == "ENSRC-TEST-001"
-        assert data["emission_source"]["id"] == source["id"]
-        assert set(data["bounding_box"].keys()) == {"x", "y", "width", "height"}
-        assert "confidence" not in data  # decode is pass/fail, not scored — see Decision B
+        assert data == {"match_type": "emission_source", "data": source}
+
+    def test_decode_and_match_product(self, client):
+        organization, facility = _create_org_facility(client)
+        product = client.post(
+            "/api/products",
+            json={
+                "organization_id": organization["id"],
+                "name": "Scannable safety helmet",
+                "barcode": "PRODUCT-SCAN-001",
+                "composition": "Recycled PET shell",
+                "emissions_value": "2.170000",
+                "emissions_unit": "kg CO2e per helmet",
+                "emissions_description": "Illustrative cradle-to-gate estimate",
+                "source_reference": "Supplier assessment, 2026",
+            },
+        ).json()
+
+        response = client.post(
+            f"/api/facilities/{facility['id']}/asset-scan",
+            files={
+                "image": (
+                    "frame.png",
+                    _qr_image_bytes("PRODUCT-SCAN-001"),
+                    "image/png",
+                )
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"match_type": "product", "data": product}
+
+    def test_generated_product_png_round_trips_through_asset_scan(self, client):
+        organization, facility = _create_org_facility(client)
+        product = client.post(
+            "/api/products",
+            json={
+                "organization_id": organization["id"],
+                "name": "Auto barcode product",
+                "composition": "Recycled aluminium",
+                "emissions_value": "1.250000",
+                "emissions_unit": "kg CO2e/item",
+                "emissions_description": "Illustrative product estimate",
+                "source_reference": "Supplier assessment, 2026",
+            },
+        ).json()
+        image = client.get(f"/api/products/{product['id']}/barcode-image")
+        assert image.status_code == 200
+
+        response = client.post(
+            f"/api/facilities/{facility['id']}/asset-scan",
+            files={"image": ("barcode.png", image.content, "image/png")},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"match_type": "product", "data": product}
+
+    def test_source_match_has_priority_over_product_in_same_organization(self, client):
+        organization, facility = _create_org_facility(client)
+        source = client.post(
+            "/api/emission-sources",
+            json={
+                "facility_id": facility["id"],
+                "source_type": "ENERGY",
+                "source_name": "Priority source",
+                "unit_of_measurement": "kWh",
+                "barcode_value": "COLLISION-001",
+            },
+        ).json()
+        client.post(
+            "/api/products",
+            json={
+                "organization_id": organization["id"],
+                "name": "Collision product",
+                "barcode": "COLLISION-001",
+                "composition": "Demo material",
+                "emissions_value": "1.000000",
+                "emissions_unit": "kg CO2e/item",
+                "emissions_description": "Demo estimate",
+                "source_reference": "Demo source",
+            },
+        )
+
+        response = client.post(
+            f"/api/facilities/{facility['id']}/asset-scan",
+            files={
+                "image": (
+                    "frame.png",
+                    _qr_image_bytes("COLLISION-001"),
+                    "image/png",
+                )
+            },
+        )
+        assert response.status_code == 200
+        assert response.json() == {"match_type": "emission_source", "data": source}
+
+    def test_source_lookup_spans_facilities_within_the_same_organization(self, client):
+        organization, source_facility = _create_org_facility(client)
+        scan_facility = client.post(
+            "/api/facilities",
+            json={
+                "organization_id": organization["id"],
+                "name": "Second Scan Plant",
+                "location": "Pune, MH",
+                "facility_type": "factory",
+            },
+        ).json()
+        source = client.post(
+            "/api/emission-sources",
+            json={
+                "facility_id": source_facility["id"],
+                "source_type": "ENERGY",
+                "source_name": "Organization-wide source",
+                "unit_of_measurement": "kWh",
+                "barcode_value": "ORG-WIDE-SOURCE",
+            },
+        ).json()
+
+        response = client.post(
+            f"/api/facilities/{scan_facility['id']}/asset-scan",
+            files={
+                "image": (
+                    "frame.png",
+                    _qr_image_bytes("ORG-WIDE-SOURCE"),
+                    "image/png",
+                )
+            },
+        )
+        assert response.status_code == 200
+        assert response.json() == {"match_type": "emission_source", "data": source}
 
 
 class TestBarcodeNotMatched:
@@ -108,8 +232,8 @@ class TestBarcodeNotMatched:
         assert "UNREGISTERED-BARCODE-XYZ" in data["error"]["message"]
 
     def test_matched_source_in_different_facility_still_not_matched(self, client):
-        # Same barcode value registered in facility A must not match a scan
-        # against facility B — the uniqueness/lookup is facility-scoped.
+        # These helpers create separate organizations. Neither source nor
+        # Product lookup may cross that organization boundary.
         _, facility_a = _create_org_facility(client)
         _, facility_b = _create_org_facility(client)
         client.post(
@@ -128,6 +252,48 @@ class TestBarcodeNotMatched:
         )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "BARCODE_NOT_MATCHED"
+
+    def test_same_barcode_source_other_org_and_product_current_org_matches_product(
+        self, client
+    ):
+        _, foreign_facility = _create_org_facility(client)
+        current_org, current_facility = _create_org_facility(client)
+        client.post(
+            "/api/emission-sources",
+            json={
+                "facility_id": foreign_facility["id"],
+                "source_type": "FUEL",
+                "source_name": "Foreign source",
+                "unit_of_measurement": "litre",
+                "barcode_value": "CROSS-ORG-CODE",
+            },
+        )
+        product = client.post(
+            "/api/products",
+            json={
+                "organization_id": current_org["id"],
+                "name": "Current organization product",
+                "barcode": "CROSS-ORG-CODE",
+                "composition": "Demo material",
+                "emissions_value": "1.000000",
+                "emissions_unit": "kg CO2e/item",
+                "emissions_description": "Demo estimate",
+                "source_reference": "Demo source",
+            },
+        ).json()
+
+        response = client.post(
+            f"/api/facilities/{current_facility['id']}/asset-scan",
+            files={
+                "image": (
+                    "frame.png",
+                    _qr_image_bytes("CROSS-ORG-CODE"),
+                    "image/png",
+                )
+            },
+        )
+        assert response.status_code == 200
+        assert response.json() == {"match_type": "product", "data": product}
 
 
 class TestNoBarcodeDetected:

@@ -11,9 +11,16 @@ from app.authorization import (
     require_product,
 )
 from app.database import get_db
+from app.models.organization import Organization
 from app.models.product import Product
 from app.models.user import User
 from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
+from app.services.barcodes import (
+    ean13_from_sequence,
+    internal_ean13_sequence,
+    is_valid_ean13,
+    render_ean13_png,
+)
 
 router = APIRouter(
     prefix="/products",
@@ -67,6 +74,31 @@ def _commit_product(db: Session, product: Product) -> None:
         raise
 
 
+def _next_generated_barcode(db: Session, organization_id: int) -> str:
+    """Return the next restricted-circulation EAN for one organization.
+
+    Locking the organization row serializes concurrent auto-generation for
+    that organization, while the existing unique constraint remains the
+    database-level final guard.
+    """
+    (
+        db.query(Organization.id)
+        .filter(Organization.id == organization_id)
+        .with_for_update()
+        .one()
+    )
+    sequences = [
+        sequence
+        for (barcode,) in db.query(Product.barcode)
+        .filter(Product.organization_id == organization_id)
+        .all()
+        if barcode is not None
+        for sequence in [internal_ean13_sequence(barcode)]
+        if sequence is not None
+    ]
+    return ean13_from_sequence(max(sequences, default=0) + 1)
+
+
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 def create_product(
     body: ProductCreate,
@@ -76,11 +108,18 @@ def create_product(
     require_organization(
         db, current_user, body.organization_id, OrganizationAction.WRITE
     )
-    if _barcode_is_taken(db, body.organization_id, body.barcode):
-        assert body.barcode is not None
-        raise _barcode_conflict(body.barcode, body.organization_id)
+    product_data = body.model_dump()
+    barcode = body.barcode
+    if barcode is None:
+        barcode = _next_generated_barcode(db, body.organization_id)
+        product_data["barcode"] = barcode
+    elif _barcode_is_taken(db, body.organization_id, barcode):
+        raise _barcode_conflict(barcode, body.organization_id)
 
-    product = Product(**body.model_dump())
+    product = Product(
+        **product_data,
+        barcode_image=render_ean13_png(barcode) if is_valid_ean13(barcode) else None,
+    )
     db.add(product)
     _commit_product(db, product)
     db.refresh(product)
@@ -111,6 +150,38 @@ def get_product(
     return require_product(db, current_user, product_id, OrganizationAction.VIEW)
 
 
+@router.get(
+    "/{product_id}/barcode-image",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}}},
+)
+def get_product_barcode_image(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    product = require_product(
+        db, current_user, product_id, OrganizationAction.VIEW
+    )
+    if product.barcode_image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NOT_FOUND",
+                "message": f"Barcode image for product {product_id} does not exist",
+            },
+        )
+    return Response(
+        content=product.barcode_image,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": (
+                f'inline; filename="product-{product.id}-barcode.png"'
+            )
+        },
+    )
+
+
 @router.patch("/{product_id}", response_model=ProductResponse)
 def update_product(
     product_id: int,
@@ -134,6 +205,12 @@ def update_product(
 
     for field_name, value in updates.items():
         setattr(product, field_name, value)
+    if "barcode" in updates:
+        product.barcode_image = (
+            render_ean13_png(next_barcode)
+            if isinstance(next_barcode, str) and is_valid_ean13(next_barcode)
+            else None
+        )
     _commit_product(db, product)
     db.refresh(product)
     return product

@@ -1,6 +1,6 @@
 """Opt-in demo seeding is gated, complete, and repeatable."""
 
-from app.demo_data import DEMO_PRODUCTS, DEMO_USERS, ean13_from_sequence
+from app.demo_data import DEMO_PRODUCTS, DEMO_USERS
 from app.models.consumption_record import ConsumptionRecord
 from app.models.emission_calculation import EmissionCalculation
 from app.models.emission_source import EmissionSource
@@ -9,6 +9,7 @@ from app.models.organization_member import OrganizationMember
 from app.models.product import Product
 from app.models.report import Report
 from app.seed import _demo_seed_enabled, seed_demo_data, seed_factors
+from app.services.barcodes import ean13_from_sequence
 
 
 def _counts(db_session, organization_id: int) -> tuple[int, ...]:
@@ -52,6 +53,12 @@ def test_demo_seed_is_complete_and_idempotent(db_session):
 
     expected = (len(DEMO_USERS), 3, 8, 24, 24, len(DEMO_PRODUCTS), 1)
     assert _counts(db_session, organization.id) == expected
+    assert all(
+        product.barcode_image is not None
+        for product in db_session.query(Product)
+        .filter_by(organization_id=organization.id)
+        .all()
+    )
 
     same_organization = seed_demo_data(
         db_session, organization_name="Demo Organization (seed test)"

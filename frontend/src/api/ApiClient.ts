@@ -112,6 +112,7 @@ export interface ApiClient {
   createProduct(req: ProductCreateRequest): Promise<Product>;
   listProducts(organizationId: number): Promise<Product[]>;
   getProduct(id: number): Promise<Product>;
+  getProductBarcodeImage(id: number): Promise<Blob>;
   updateProduct(id: number, req: ProductUpdateRequest): Promise<Product>;
   deleteProduct(id: number): Promise<void>;
 

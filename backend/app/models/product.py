@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -32,6 +33,7 @@ class Product(Base):
     # Nullable on purpose: a product may be catalogued before its barcode is
     # known. PostgreSQL permits multiple NULLs under the unique constraint.
     barcode: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    barcode_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     composition: Mapped[str] = mapped_column(Text, nullable=False)
     emissions_value: Mapped[Decimal] = mapped_column(
         Numeric(precision=18, scale=6), nullable=False

@@ -1,34 +1,37 @@
 :root {
-  --color-bg: #f6f4fb;
-  --color-surface: #ffffff;
-  --color-border: #ddd8e8;
-  --color-text: #241b33;
-  --color-text-muted: #695f78;
-  --color-primary: #7c3aed;
-  --color-primary-dark: #5b21b6;
+  --color-background: #ffffff;
+  --color-bg: var(--color-background);
+  --color-surface: #d9ede0;
+  --color-surface-secondary: #a9cdb8;
+  --color-elevated: #ffffff;
+  --color-border: #a9cdb8;
+  --color-text: #173127;
+  --color-text-muted: #40594d;
+  --color-primary: #1f4b38;
+  --color-primary-dark: #153527;
   --color-primary-contrast: #ffffff;
-  --color-primary-soft: #f0e9ff;
-  --color-sidebar: #191326;
-  --color-sidebar-border: #312643;
-  --color-sidebar-text: #eee9f6;
-  --color-sidebar-muted: #aaa0ba;
-  --color-sidebar-active: #8b5cf6;
-  --color-sidebar-hover: rgba(255, 255, 255, 0.07);
-  --color-sidebar-active-bg: rgba(139, 92, 246, 0.18);
-  --color-sidebar-active-border: rgba(139, 92, 246, 0.42);
-  --color-scrim: rgba(25, 19, 38, 0.48);
+  --color-primary-soft: #eff8f2;
+  --color-sidebar: #f4faf6;
+  --color-sidebar-border: #b7d2c2;
+  --color-sidebar-text: #1f4b38;
+  --color-sidebar-muted: #52655b;
+  --color-sidebar-active: #1f4b38;
+  --color-sidebar-hover: #d9ede0;
+  --color-sidebar-active-bg: #a9cdb8;
+  --color-sidebar-active-border: #6f9f82;
+  --color-scrim: rgba(31, 75, 56, 0.36);
   --color-danger: #9c2b22;
   --color-danger-dark: #7d211a;
   --color-danger-bg: #fbeceb;
   --color-danger-border: #eabdb8;
-  --color-energy: #2563eb;
-  --color-fuel: #b45309;
-  --color-resource: #2f7d32;
+  --color-energy: #326b61;
+  --color-fuel: #9a6421;
+  --color-resource: #4f7a52;
   --radius: 10px;
   --topbar-height: 68px;
   --sidebar-width: 238px;
-  --shadow-card: 0 1px 2px rgba(36, 27, 51, 0.05), 0 8px 24px rgba(36, 27, 51, 0.06);
-  --shadow-accent: 0 5px 14px rgba(124, 58, 237, 0.28);
+  --shadow-card: 0 1px 2px rgba(31, 75, 56, 0.06), 0 8px 24px rgba(31, 75, 56, 0.08);
+  --shadow-accent: 0 5px 14px rgba(31, 75, 56, 0.24);
 }
 
 * {
@@ -46,7 +49,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family:
-    "Segoe UI",
+    "Inter",
     system-ui,
     -apple-system,
     Roboto,
@@ -59,6 +62,7 @@ body {
 h1,
 h2,
 h3 {
+  font-family: "Fraunces", Georgia, "Times New Roman", serif;
   line-height: 1.25;
   margin: 0 0 0.6em;
 }
@@ -74,8 +78,7 @@ h2 {
 h3 {
   font-size: 1rem;
   color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.01em;
 }
 
 a {
@@ -118,7 +121,7 @@ textarea {
   padding: 0.5em 0.6em;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  background: var(--color-surface);
+  background: var(--color-elevated);
   color: var(--color-text);
 }
 
@@ -148,7 +151,7 @@ table {
     "content";
   grid-template-columns: minmax(0, 1fr);
   background:
-    radial-gradient(circle at 18% 18%, rgba(124, 58, 237, 0.12), transparent 28rem),
+    radial-gradient(circle at 18% 18%, rgba(169, 205, 184, 0.42), transparent 28rem),
     var(--color-bg);
 }
 
@@ -209,6 +212,7 @@ table {
   font-weight: 700;
   font-size: 1.1rem;
   color: var(--color-text);
+  font-family: "Fraunces", Georgia, "Times New Roman", serif;
 }
 
 .app-topbar__selection {
@@ -544,7 +548,7 @@ table {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1rem;
-  border: 1px solid rgba(124, 58, 237, 0.35);
+  border: 1px solid var(--color-sidebar-active-border);
   border-radius: var(--radius);
   background: var(--color-primary-soft);
 }
@@ -569,7 +573,7 @@ table {
 .demo-access__button {
   width: 100%;
   justify-content: center;
-  background: var(--color-surface);
+  background: var(--color-elevated);
   color: var(--color-primary-dark);
   border: 1px solid var(--color-primary);
   font-size: 0.8rem;
@@ -809,6 +813,7 @@ table {
 }
 
 .result-panel__figure {
+  font-family: "Fraunces", Georgia, "Times New Roman", serif;
   font-size: 1.6rem;
   font-weight: 700;
   color: var(--color-primary-dark);
@@ -926,6 +931,38 @@ table {
 .scan-panel__cancel:hover:not(:disabled) {
   background: var(--color-surface);
   color: var(--color-text);
+}
+
+/* ---------- Product barcodes ---------- */
+
+.product-barcode {
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.product-barcode code {
+  font-variant-numeric: tabular-nums;
+}
+
+.product-barcode__image {
+  display: block;
+  width: min(220px, 100%);
+  height: auto;
+  padding: 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-elevated);
+}
+
+.product-barcode__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 /* ---------- Status badges (reports) ---------- */

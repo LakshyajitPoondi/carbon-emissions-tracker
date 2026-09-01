@@ -1,7 +1,8 @@
 """Asset Scan endpoint.
 
 POST /facilities/{facility_id}/asset-scan — decode a barcode from an
-uploaded webcam frame and resolve it to an emission source in that facility.
+uploaded webcam frame and resolve it to an emission source or Product in the
+facility's organization.
 """
 
 from fastapi import APIRouter, Depends, UploadFile, status
@@ -15,7 +16,12 @@ from app.database import get_db
 from app.ml import get_yolo_model
 from app.models.emission_source import EmissionSource
 from app.models.facility import Facility
-from app.schemas.asset_scan import AssetScanResponse, BoundingBoxResponse
+from app.models.product import Product
+from app.schemas.asset_scan import (
+    AssetScanEmissionSourceResponse,
+    AssetScanProductResponse,
+    AssetScanResponse,
+)
 from app.schemas.error import error_response
 from app.services.asset_scan import decode_barcode, run_presence_gate
 
@@ -74,28 +80,37 @@ async def scan_asset(
 
     source = (
         db.query(EmissionSource)
+        .join(Facility, Facility.id == EmissionSource.facility_id)
         .filter(
-            EmissionSource.facility_id == facility_id,
+            Facility.organization_id == facility.organization_id,
             EmissionSource.barcode_value == decoded.value,
         )
         .first()
     )
-    if source is None:
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content=error_response(
-                "BARCODE_NOT_MATCHED",
-                f"Barcode '{decoded.value}' does not match any emission source in facility {facility_id}",
-            ),
+    if source is not None:
+        return AssetScanEmissionSourceResponse(
+            match_type="emission_source",
+            data=source,
         )
 
-    return AssetScanResponse(
-        decoded_value=decoded.value,
-        bounding_box=BoundingBoxResponse(
-            x=decoded.bounding_box.x,
-            y=decoded.bounding_box.y,
-            width=decoded.bounding_box.width,
-            height=decoded.bounding_box.height,
+    product = (
+        db.query(Product)
+        .filter(
+            Product.organization_id == facility.organization_id,
+            Product.barcode == decoded.value,
+        )
+        .first()
+    )
+    if product is not None:
+        return AssetScanProductResponse(match_type="product", data=product)
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=error_response(
+            "BARCODE_NOT_MATCHED",
+            (
+                f"Barcode '{decoded.value}' does not match any emission source "
+                f"or product in organization {facility.organization_id}"
+            ),
         ),
-        emission_source=source,
     )

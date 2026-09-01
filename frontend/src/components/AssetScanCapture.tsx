@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiClient } from "../api";
-import type { EmissionSource } from "../types";
+import type { AssetScanResult, EmissionSource } from "../types";
 import { ErrorBanner } from "./ErrorBanner";
 import { LoadingState } from "./LoadingState";
 
@@ -42,10 +42,7 @@ export function AssetScanCapture({ facilityId, onMatched }: AssetScanCaptureProp
   const [status, setStatus] = useState<ScanStatus>("closed");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanError, setScanError] = useState<unknown>(null);
-  const [matchedResult, setMatchedResult] = useState<{
-    source: EmissionSource;
-    decodedValue: string;
-  } | null>(null);
+  const [matchedResult, setMatchedResult] = useState<AssetScanResult | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -113,9 +110,11 @@ export function AssetScanCapture({ facilityId, onMatched }: AssetScanCaptureProp
 
     try {
       const result = await apiClient.scanAsset(facilityId, blob);
-      setMatchedResult({ source: result.emission_source, decodedValue: result.decoded_value });
+      setMatchedResult(result);
       setStatus("matched");
-      onMatched(result.emission_source, result.decoded_value);
+      if (result.match_type === "emission_source") {
+        onMatched(result.data, result.data.barcode_value ?? "");
+      }
     } catch (err) {
       // NO_BARCODE_DETECTED / BARCODE_NOT_MATCHED render via ErrorBanner
       // below, using the API's actual error.message text — not invented
@@ -192,11 +191,33 @@ export function AssetScanCapture({ facilityId, onMatched }: AssetScanCaptureProp
 
           {status === "matched" && matchedResult && (
             <div className="result-panel" role="status">
-              <h3>Barcode matched</h3>
-              <p>
-                Scanned <strong>{matchedResult.decodedValue}</strong> — matched{" "}
-                <strong>{matchedResult.source.source_name}</strong>. Selected below.
-              </p>
+              {matchedResult.match_type === "emission_source" ? (
+                <>
+                  <h3>Emission source matched</h3>
+                  <p>
+                    Scanned <strong>{matchedResult.data.barcode_value}</strong> — matched{" "}
+                    <strong>{matchedResult.data.source_name}</strong>. Selected below.
+                  </p>
+                  <p className="result-panel__meta">
+                    {matchedResult.data.source_type} · {matchedResult.data.unit_of_measurement}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3>Product matched</h3>
+                  <p>
+                    <strong>{matchedResult.data.name}</strong>
+                  </p>
+                  <p>{matchedResult.data.composition}</p>
+                  <p>
+                    <strong>{matchedResult.data.emissions_value}</strong>{" "}
+                    {matchedResult.data.emissions_unit}
+                  </p>
+                  <p className="result-panel__meta">
+                    Source: {matchedResult.data.source_reference}
+                  </p>
+                </>
+              )}
               <div className="scan-panel__actions">
                 <button type="button" onClick={handleRetry}>
                   Scan another

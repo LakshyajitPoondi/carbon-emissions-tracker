@@ -68,6 +68,13 @@ entered catalog: name, nullable-but-unique-per-org barcode, composition
 wired into the consumption -> emission_factor -> kg CO2e calculation.
 Standalone reference data by design.
 
+`Product.barcode_image` (added by item 15) stores the generated PNG bytes.
+Omitting/blanking `barcode` on create allocates an organization-local GS1
+restricted-circulation EAN-13 (`20...`) and persists its PNG. Valid supplied
+EAN-13 values also get a PNG; arbitrary legacy barcode strings remain
+accepted but have no image. `GET /api/products/{id}/barcode-image` is the
+read-only, VIEW-gated image surface.
+
 ## Authorization model (RBAC)
 
 Central matrix in `backend/app/authorization.py`. Three roles:
@@ -229,8 +236,9 @@ additive/non-breaking.
 - Verified (as of RBAC + Product Library + Theme Overhaul merge): none of
   that work added a new npm or pip dependency, nor a new required env var.
   Alembic migration chain is strictly linear
-  (`0001 -> 0002 -> ... -> 0007_expand_org_roles -> 0008_add_products`,
-  each `down_revision` checked). Merge order matters when multiple feature
+  (`0001 -> 0002 -> ... -> 0008_add_products ->
+  0009_membership_lifecycle -> 0010_product_barcode_images`, each
+  `down_revision` checked). Merge order matters when multiple feature
   branches touch migrations — always confirm the chain stays linear
   (no forked heads) before/after merging.
 - Vercel (frontend) typically finishes deploying faster than Railway
@@ -248,7 +256,8 @@ additive/non-breaking.
 - Backend: `pytest tests/ -v` — full suite run before/after every task.
   New tasks add targeted regression tests
   (`test_celery_imports.py`, `test_roles.py`, etc.). ~229 passing as of the
-  Product Library merge; 242 passing after the sign-in/demo-seed work.
+  Product Library merge; 242 passing after the sign-in/demo-seed work;
+  249 passing after item 15.
 - Frontend: `npx tsc -b --noEmit` (must be `-b`, not a bare `--noEmit` —
   `frontend/tsconfig.json` is a solution-style config with `"files": []`
   referencing `tsconfig.app.json`/`tsconfig.node.json`, so a bare
@@ -365,6 +374,7 @@ and should continue:
     used for *layout structure and color direction only* — its
     domain-specific content (map, alert cards, demo banner, its own nav
     labels) was explicitly excluded. Merged to `main`.
+    **Palette superseded by item 15; AppShell/layout remains current.**
 13. **Membership management — DONE, implemented and merged.** Fixes the
     RBAC gap from item 10 (there was no way to add a second member to an
     org or grant ADMIN/EMPLOYEE). Design as approved:
@@ -449,7 +459,8 @@ and should continue:
       database (harmless test data, not production).
 14. **Sign-in redesign + opt-in demo environment** (implemented on
     `agent/core/refinements`; no contract/schema change):
-    - Public auth routes render a centered purple-theme sign-in card and
+    - Public auth routes render a centered sign-in card (original purple
+      palette superseded by item 15's pastel-green theme) and
       never mount the AppShell sidebar. Authenticated shell/nav is
       unchanged. Demo Access buttons fill credentials only; they do not
       submit automatically.
@@ -482,6 +493,41 @@ and should continue:
       Frontend typecheck/build/lint passed (lint has existing warnings).
     - Last-used-organization auto-selection remains proposal-only. No
       user column, migration, login response change, or endpoint was added.
+15. **Product barcode generation + dual Asset Scan + green theme**
+    (implemented on `agent/core/refinements`; approved contract update):
+    - Product create with omitted/blank barcode now allocates a unique
+      per-organization restricted-circulation EAN-13 and stores a generated
+      PNG in `products.barcode_image`; migration
+      `0010_product_barcode_images`. Rendering is dependency-free and shared
+      by seed/demo generation and runtime creation — no new pip dependency.
+      Existing valid EAN-13 Products receive images during idempotent demo
+      seeding without replacing any existing Product fields.
+    - New `GET /api/products/{product_id}/barcode-image`: VIEW-gated,
+      organization-masked 404 semantics, returns the persisted `image/png`
+      bytes and never generates/writes on GET. Product Library displays the
+      image and provides `Download PNG` plus `Open / print` links.
+    - Asset Scan response is now the approved discriminated union
+      `{"match_type":"emission_source"|"product","data":{...}}`.
+      Resolution order is EmissionSource first, then Product; both queries
+      are scoped to the selected facility's organization. The handler remains
+      read-only. Product matches show Product reference details in the scan
+      UI and do not incorrectly select a consumption emission source.
+    - Theme supersedes item 12's purple palette: white canvas, pastel-green
+      surfaces, dark-green controls, and a **light-sage sidebar**. Inter is
+      the body/UI face; Fraunces is used for headings/brand figures. No old
+      purple tokens remain. Checked key text/control combinations at WCAG AA
+      or better (minimum checked ratio 5.71:1).
+    - Contract updated in `Docs/api-contract.md`; no RBAC/matrix changes.
+      Migration passed both existing-DB upgrade and blank replay. Real local
+      UI walkthrough covered sign-in, Dashboard, Overview, Reports,
+      Consumption, Products, and Members. A blank-barcode Product received
+      `2000000000060`, displayed its PNG, and exposed download/print links.
+      Its actual persisted PNG round-tripped through the live non-mock Asset
+      Scan API as `match_type: product`; a real source QR returned
+      `match_type: emission_source`.
+      Full backend suite: 249 passed (242 before); frontend
+      `tsc -b --noEmit` and production build passed; oxlint passed with only
+      the same pre-existing React advisory warnings.
 
 ## Open items / not yet done (as of this handoff)
 
@@ -505,10 +551,9 @@ and should continue:
 - Audit logging has backend persistence/middleware/read endpoint/tests but
   no frontend API client method, page, or navigation. Treat it as a
   partially implemented user-facing feature, not end-to-end UI coverage.
-- Product scanning is not part of Asset Scan: Product uses `barcode`, while
-  Asset Scan looks up only EmissionSource `barcode_value`. The demo Product
-  PNGs are valid/scannable EAN-13 files, but app-level Product lookup needs
-  an explicitly approved contract design.
+- **Superseded by item 15:** Product scanning is now part of Asset Scan via
+  the approved discriminated response contract; EmissionSource retains
+  priority and both lookup branches are organization-scoped.
 - Last-used organization auto-selection is not implemented. A proposal is
   pending human review; do not change login/session contracts before
   approval.

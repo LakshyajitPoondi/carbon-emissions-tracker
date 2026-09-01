@@ -28,6 +28,56 @@ const EMPTY_FORM: ProductFormState = {
   sourceReference: "",
 };
 
+function ProductBarcodeCell({ product }: { product: Product }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!product.barcode) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    void apiClient
+      .getProductBarcodeImage(product.id)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setImageUrl(objectUrl);
+      })
+      .catch(() => {
+        // Legacy or arbitrary non-EAN Product barcodes legitimately have no
+        // generated PNG. The text value remains useful and visible.
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [product.barcode, product.id]);
+
+  if (!product.barcode) return <>Not assigned</>;
+
+  return (
+    <div className="product-barcode">
+      <code>{product.barcode}</code>
+      {imageUrl && (
+        <>
+          <img
+            className="product-barcode__image"
+            src={imageUrl}
+            alt={`EAN-13 barcode for ${product.name}`}
+          />
+          <div className="product-barcode__actions">
+            <a href={imageUrl} download={`product-${product.id}-barcode.png`}>
+              Download PNG
+            </a>
+            <a href={imageUrl} target="_blank" rel="noreferrer">
+              Open / print
+            </a>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ProductLibraryPage() {
   const { organization } = useAppState();
 
@@ -212,7 +262,9 @@ function ProductLibraryForOrganization({
                 />
               </div>
               <div className="field">
-                <label htmlFor="product-barcode">Barcode (optional)</label>
+                <label htmlFor="product-barcode">
+                  Barcode (optional — generated if blank)
+                </label>
                 <input
                   id="product-barcode"
                   value={form.barcode}
@@ -323,7 +375,7 @@ function ProductLibraryForOrganization({
                   {products.map((product) => (
                     <tr key={product.id}>
                       <td><strong>{product.name}</strong></td>
-                      <td>{product.barcode ?? "Not assigned"}</td>
+                      <td><ProductBarcodeCell product={product} /></td>
                       <td>{product.composition}</td>
                       <td>{product.emissions_value} {product.emissions_unit}</td>
                       <td>

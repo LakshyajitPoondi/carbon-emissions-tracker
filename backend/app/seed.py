@@ -39,6 +39,7 @@ from app.models.product import Product
 from app.models.report import Report, ReportStatusEnum
 from app.models.user import User
 from app.services.emissions import calculate_emissions, find_applicable_emission_factor
+from app.services.barcodes import render_ean13_png
 from app.services.memberships import generate_unique_join_code
 from app.services.reports import organization_report_totals
 
@@ -268,8 +269,20 @@ def seed_demo_data(
             .first()
         )
         if exists is None:
-            db.add(Product(organization_id=organization.id, **fixture))
+            db.add(
+                Product(
+                    organization_id=organization.id,
+                    barcode_image=render_ean13_png(fixture["barcode"]),
+                    **fixture,
+                )
+            )
             print(f"  ADD   product {fixture['name']} ({fixture['barcode']})")
+        elif exists.barcode_image is None:
+            # The barcode-image column was introduced after the original
+            # demo fixture. Fill only that new missing value; never replace
+            # an existing Product field or image.
+            exists.barcode_image = render_ean13_png(fixture["barcode"])
+            print(f"  ADD   barcode image for {fixture['name']}")
 
     db.flush()
     report_start = date(2026, 8, 1)
