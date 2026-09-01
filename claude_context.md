@@ -231,8 +231,11 @@ additive/non-breaking.
   Vercel's `VITE_API_BASE_URL`/`VITE_USE_MOCK_API`.
 - Frontend env vars (`VITE_USE_MOCK_API`, `VITE_API_BASE_URL`, and the
   opt-in `VITE_ENABLE_DEMO_ACCESS`) must be set
-  in **Vercel's** project settings for production — `frontend/.env.local`
-  is local-only/gitignored and not deployed.
+  in **Vercel's** project settings for production. Contrary to an older
+  assumption, `frontend/.env.local` is currently tracked by this repo
+  (`.gitignore` ignores only the exact root `.env` name); do not rely on
+  that file for choosing Vercel Production vs Preview values — use the
+  dashboard's environment-scoped variables and rebuild.
 - Verified (as of RBAC + Product Library + Theme Overhaul merge): none of
   that work added a new npm or pip dependency, nor a new required env var.
   Alembic migration chain is strictly linear
@@ -528,6 +531,23 @@ and should continue:
       Full backend suite: 249 passed (242 before); frontend
       `tsc -b --noEmit` and production build passed; oxlint passed with only
       the same pre-existing React advisory warnings.
+16. **Demo Access panel configuration bug — diagnosed/fixed locally:**
+    - Root cause was configuration placement, not React wiring. Commit
+      `371b221` changed `frontend/.env.example` to
+      `VITE_ENABLE_DEMO_ACCESS=true`, but Vite does not load `.env.example`;
+      the key was absent from the loaded `frontend/.env.local`,
+      so `import.meta.env.VITE_ENABLE_DEMO_ACCESS` was `undefined` and the
+      correct `=== "true"` conditional remained false.
+    - Added `VITE_ENABLE_DEMO_ACCESS=true` to local `.env.local` and restarted
+      Vite cleanly. A temporary diagnostic log proved the runtime string was
+      `true`; the log was removed immediately afterward. Real browser reload
+      showed the panel, Owner/Admin filled `admin-demo@gmail.com`, and
+      Employee filled `employee-demo@gmail.com`; both filled the shared demo
+      password. Only the tracked environment file changed; no React/config
+      source-code change was needed.
+    - Production/Preview remains dashboard-configured: set the variable in
+      the exact Vercel environment being viewed and redeploy. Committing
+      `.env.example` alone never changes a Vercel build.
 
 ## Open items / not yet done (as of this handoff)
 
