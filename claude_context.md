@@ -548,6 +548,20 @@ and should continue:
     - Production/Preview remains dashboard-configured: set the variable in
       the exact Vercel environment being viewed and redeploy. Committing
       `.env.example` alone never changes a Vercel build.
+17. **Demo credential failure screenshot — investigated, not reproduced:**
+    - Both public credentials (`admin-demo@gmail.com` and
+      `employee-demo@gmail.com` with `DemoPass123!`) returned HTTP 200
+      directly from the current local backend. A fresh real-browser Employee
+      flow (click Demo Access button, then Sign In) also succeeded and landed
+      authenticated as `employee-demo@gmail.com`; no UI/auth code change was
+      needed.
+    - Important deployment edge case: `seed_demo_data()` intentionally skips
+      an existing user and therefore does not repair/reset that user's stored
+      password hash. If a deployed database already contains either demo
+      email with a different password, merely enabling
+      `SEED_DEMO_ACCOUNTS=true` and redeploying will still leave that login at
+      401. Confirm the frontend's actual API target first; any production hash
+      reset must be deliberate rather than silently added to idempotent seed.
 
 ## Open items / not yet done (as of this handoff)
 
