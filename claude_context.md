@@ -563,6 +563,25 @@ and should continue:
       401. Confirm the frontend's actual API target first; any production hash
       reset must be deliberate rather than silently added to idempotent seed.
 
+18. **Product scan -> consumption gap — diagnosed; implementation pending:**
+    - `AssetScanCapture` invokes its selection callback only for
+      `match_type: emission_source`; Product matches display reference data
+      without selecting a consumption input or submitting a record.
+    - `POST /consumption-records` and the DB require `emission_source_id`;
+      calculations require `emission_factor_id`. Product reference fields
+      are deliberately excluded by the current frozen contract. This is
+      missing product-consumption functionality, not a failed scan/save.
+    - Product `emissions_unit` is free text, with no structured consumption
+      unit or source-type classification. Do not assume one scan means one
+      consumed item, infer a scope from a barcode, or route Products through
+      the generic RESOURCE/cement emission factor.
+    - User requested implementation; contract/schema expansion still needs
+      explicit approval under the existing governance rule. Proposed flow:
+      scan selects Product -> user confirms quantity/date -> Log consumption;
+      validated product factor/unit/classification, immutable historical
+      snapshot, organization scoping, and downstream aggregation required.
+      No implementation or contract changes made in this diagnostic pass.
+
 ## Open items / not yet done (as of this handoff)
 
 - No delete endpoints exist anywhere in this app except
