@@ -15,6 +15,7 @@ from app.models.organization import Organization
 from app.models.product import Product
 from app.models.user import User
 from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
+from app.services.product_configuration import validate_product_configuration
 from app.services.barcodes import (
     ean13_from_sequence,
     internal_ean13_sequence,
@@ -193,6 +194,16 @@ def update_product(
         db, current_user, product_id, OrganizationAction.WRITE
     )
     updates = body.model_dump(exclude_unset=True)
+    try:
+        validate_product_configuration(
+            updates.get("consumption_unit", product.consumption_unit),
+            updates.get("consumption_source_type", product.consumption_source_type),
+            updates.get("emissions_unit", product.emissions_unit),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "VALIDATION_ERROR", "message": str(exc)}
+        ) from exc
     next_barcode = updates.get("barcode", product.barcode)
     if _barcode_is_taken(
         db,

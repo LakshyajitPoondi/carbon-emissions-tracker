@@ -29,6 +29,7 @@ from app.services.emissions import (
     find_applicable_emission_factor,
 )
 from app.ws import manager
+from app.services.product_consumption import create_product_consumption
 
 router = APIRouter(
     prefix="/consumption-records",
@@ -47,6 +48,10 @@ async def create_consumption_record(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if body.product_id is not None:
+        record = create_product_consumption(db, current_user, body)
+        return await _commit_and_broadcast(db, record)
+
     # Both the source and the facility must belong to an organization this
     # user is a member of. Checked independently, because owning one does
     # not imply owning the other.
@@ -101,6 +106,11 @@ async def create_consumption_record(
         calculation_date=datetime.now(timezone.utc).date(),
     )
     db.add(calculation)
+    return await _commit_and_broadcast(db, record)
+
+
+async def _commit_and_broadcast(db: Session, record: ConsumptionRecord):
+    """Both input kinds persist atomically and trigger the same live refresh."""
     db.commit()
     db.refresh(record)
 
@@ -115,7 +125,7 @@ async def create_consumption_record(
     # reasoning written out for the frontend side.
     response = ConsumptionRecordResponse.model_validate(record)
     await manager.broadcast(
-        f"facility:{body.facility_id}",
+        f"facility:{record.facility_id}",
         {
             "type": "consumption_record_created",
             "consumption_record": response.model_dump(mode="json"),

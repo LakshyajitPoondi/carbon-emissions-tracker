@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Index
+from sqlalchemy import String, Integer, ForeignKey, DateTime, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -33,9 +33,10 @@ class Facility(Base):
     # Relationships
     organization = relationship("Organization", back_populates="facilities")
     emission_sources = relationship("EmissionSource", back_populates="facility", cascade="all, delete-orphan")
-    consumption_records = relationship("ConsumptionRecord", back_populates="facility", cascade="all, delete-orphan")
+    consumption_records = relationship("ConsumptionRecord", back_populates="facility", cascade="all, delete-orphan", foreign_keys="ConsumptionRecord.facility_id")
 
     __table_args__ = (
+        UniqueConstraint("id", "organization_id", name="uq_facilities_id_organization_id"),
         Index("ix_facilities_organization_id", "organization_id"),
         Index("ix_facilities_name", "name"),
         Index("ix_facilities_facility_type", "facility_type"),

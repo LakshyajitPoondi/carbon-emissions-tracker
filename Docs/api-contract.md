@@ -340,9 +340,10 @@ masked `404 NOT_FOUND` convention as other organization-owned resources.
 
 ## Product Library
 
-Products are manually maintained, organization-scoped reference data. They
-are independent of facilities, emission sources, consumption records, and
-emission factors; no Product field participates in emissions calculations.
+Products are manually maintained, organization-scoped reference data. An
+OWNER/ADMIN may explicitly configure a Product for consumption logging.
+Configured Products use their own declared per-unit emissions value, never
+the generic emission-source factors. Unconfigured Products remain reference-only.
 
 Product object:
 ```json
@@ -354,6 +355,8 @@ Product object:
   "composition": "70% recycled aluminium, 30% primary aluminium",
   "emissions_value": "1.250000",
   "emissions_unit": "kg CO2e/item",
+  "consumption_unit": "item",
+  "consumption_source_type": "RESOURCE",
   "emissions_description": "Cradle-to-gate embodied emissions per finished bottle",
   "source_reference": "Supplier EPD, 2026",
   "created_at": "2026-08-31T10:00:00Z",
@@ -362,6 +365,16 @@ Product object:
 ```
 
 `emissions_value` is a non-negative decimal serialized as a string.
+`consumption_unit` (nonblank string, max 50 characters) and
+`consumption_source_type` (`ENERGY` | `FUEL` | `RESOURCE`) are optional on
+create and nullable in every Product response. Both must be set together or
+both null. Existing Products remain unconfigured (both null); no automatic
+unit conversion or scope inference is performed. When configured,
+`emissions_unit` must equal `kg CO2e/{consumption_unit}` exactly after trimming.
+The classification describes the cited figure's accounting boundary, not
+merely the material's name. The UI uses the existing shared scope labels.
+Setting both fields to null via PATCH disables future Product consumption;
+changing/disabling/deleting a Product never changes already-logged emissions.
 `barcode` remains nullable for legacy/manual records and may be explicitly
 cleared by PATCH. On creation, however, omitting it, sending `null`, or sending
 only whitespace causes the server to assign the next organization-local
@@ -406,6 +419,8 @@ generates or writes data during a GET.
 OWNER/ADMIN only. Request contains at least one mutable Product field. The
 `organization_id` is immutable and is never accepted. Send `{"barcode":
 null}` to clear a barcode. Response `200`: the updated Product object.
+The merged Product must satisfy the consumption configuration rules above;
+invalid/partial configurations return `422 VALIDATION_ERROR`.
 
 Errors use the same masked `404`, barcode-conflict, and validation behavior as
 creation.
@@ -518,7 +533,10 @@ object for that type. Lookup priority is emission source first, then Product.
 Both lookups are scoped to the selected facility's organization; Product
 matching is organization-wide because Products do not belong to facilities.
 No `confidence` field is returned — barcode decode is deterministic
-pass/fail. The endpoint remains fully read-only.
+pass/fail. The endpoint remains fully read-only. Product `data` also includes
+the two nullable consumption configuration fields described above. The
+Product matched card offers quantity/date and a `Log consumption` button;
+only that explicit submission writes via `POST /consumption-records`.
 
 Errors:
 - `404` if `facility_id` doesn't exist.
@@ -656,6 +674,8 @@ Response `201`:
 {
   "id": 10,
   "emission_source_id": 3,
+  "product_id": null,
+  "product_snapshot": null,
   "facility_id": 1,
   "quantity_consumed": "1250.500000",
   "unit": "kWh",
@@ -673,6 +693,80 @@ Errors: `404` if `emission_source_id`/`facility_id` is invalid **or belongs to a
 
 ### GET /consumption-records?facility_id={id}&start_date=&end_date=
 Response `200`: array of consumption records, each including its nested `calculation` object (or `null` if none).
+
+### Product consumption (approved extension)
+
+`POST /consumption-records` also accepts this alternative request:
+```json
+{
+  "product_id": 14,
+  "facility_id": 1,
+  "quantity_consumed": "2.0000",
+  "unit": "item",
+  "recorded_at": "2026-09-03T09:00:00Z"
+}
+```
+Exactly one non-null `emission_source_id` or `product_id` is required.
+Source-based requests and calculations remain unchanged. Product quantity
+must be finite and positive, fit Numeric(14,4), and use the configured
+`consumption_unit` exactly (after trimming). Product calculations multiply
+quantity by the Product's current `emissions_value` using Decimal, rounded
+half-up to four decimal places; an overflowing Numeric(14,4) result is rejected.
+All organization roles may log (`ENTRY`). Product and facility must belong
+to the same organization and both must be accessible to the caller.
+
+Every POST/GET consumption response now also contains nullable `product_id`
+and `product_snapshot` (both null for source records). `emission_source_id`
+and nested `calculation.emission_factor_id` are null for Product records:
+```json
+{
+  "id": 11,
+  "emission_source_id": null,
+  "product_id": 14,
+  "facility_id": 1,
+  "quantity_consumed": "2.0000",
+  "unit": "item",
+  "recorded_at": "2026-09-03T09:00:00Z",
+  "created_at": "2026-09-03T09:00:01Z",
+  "product_snapshot": {
+    "id": 14,
+    "name": "Recycled aluminium bottle",
+    "barcode": "2000000000145",
+    "consumption_unit": "item",
+    "consumption_source_type": "RESOURCE",
+    "emissions_value": "1.250000",
+    "emissions_unit": "kg CO2e/item",
+    "consumption_unit": "item",
+    "consumption_source_type": "RESOURCE",
+    "emissions_description": "Cradle-to-gate embodied emissions per finished bottle",
+    "source_reference": "Supplier EPD, 2026"
+  },
+  "calculation": {
+    "id": 8,
+    "emission_factor_id": null,
+    "calculated_emissions_kg_co2e": "2.5000",
+    "calculation_date": "2026-09-03"
+  }
+}
+```
+The snapshot and computed result are immutable historical data. Product
+deletion sets the live `product_id` to null but keeps snapshot.id, all
+snapshot fields, and consumption/calculation rows. Dashboard, GraphQL
+Overview, and newly generated reports include Product calculations under
+the snapshotted source type and recorded date; existing saved reports remain
+unchanged. No GraphQL schema or summary response shape changes.
+The existing `consumption_record_created` WebSocket message carries this
+same expanded record shape, including the two null fields for source records.
+
+Errors: masked `404 NOT_FOUND` for missing/inaccessible Product/facility or
+a Product from a different organization (even if the caller belongs to both);
+`422 PRODUCT_NOT_CONFIGURED` for a reference-only Product;
+`422 PRODUCT_UNIT_MISMATCH` for a unit mismatch;
+`422 VALIDATION_ERROR` for invalid selection, quantity, date, or numeric overflow.
+No record/calculation is written on validation failure. Merely scanning,
+closing, or rescanning never logs consumption. The matched-card button is
+disabled while submitting and after success for that match to prevent
+accidental repeat clicks; scanning again starts a new deliberate entry.
 
 ---
 
@@ -780,6 +874,8 @@ connected to that record's `facility_id`:
   "consumption_record": {
     "id": 10,
     "emission_source_id": 3,
+    "product_id": null,
+    "product_snapshot": null,
     "facility_id": 1,
     "quantity_consumed": "1250.500000",
     "unit": "kWh",

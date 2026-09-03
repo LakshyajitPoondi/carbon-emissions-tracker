@@ -11,7 +11,7 @@ values instead of recomputing.
 from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import func
+from sqlalchemy import String, cast, func
 from sqlalchemy.orm import Session
 
 from app.models.consumption_record import ConsumptionRecord
@@ -39,12 +39,14 @@ def facility_emissions_by_source_type(
     to "0.00" for any type with no consumption in the period.
     """
     start_dt, end_dt = _period_bounds(start, end)
+    source_type = func.coalesce(cast(EmissionSource.source_type, String), ConsumptionRecord.product_source_type)
     rows = (
         db.query(
-            EmissionSource.source_type,
+            source_type,
             func.sum(EmissionCalculation.calculated_emissions_kg_co2e),
         )
-        .join(ConsumptionRecord, ConsumptionRecord.emission_source_id == EmissionSource.id)
+        .select_from(ConsumptionRecord)
+        .outerjoin(EmissionSource, ConsumptionRecord.emission_source_id == EmissionSource.id)
         .join(
             EmissionCalculation,
             EmissionCalculation.consumption_record_id == ConsumptionRecord.id,
@@ -54,11 +56,11 @@ def facility_emissions_by_source_type(
             ConsumptionRecord.recorded_at >= start_dt,
             ConsumptionRecord.recorded_at <= end_dt,
         )
-        .group_by(EmissionSource.source_type)
+        .group_by(source_type)
         .all()
     )
     by_type = {
-        source_type.value: Decimal(total).quantize(SUMMARY_QUANT, rounding=ROUND_HALF_UP)
+        source_type: Decimal(total).quantize(SUMMARY_QUANT, rounding=ROUND_HALF_UP)
         for source_type, total in rows
     }
     for source_type in SourceTypeEnum:
@@ -90,13 +92,15 @@ def organization_emissions_by_source_type(
     if not facility_ids:
         return {}
     start_dt, end_dt = _period_bounds(start, end)
+    source_type = func.coalesce(cast(EmissionSource.source_type, String), ConsumptionRecord.product_source_type)
     rows = (
         db.query(
             ConsumptionRecord.facility_id,
-            EmissionSource.source_type,
+            source_type,
             func.sum(EmissionCalculation.calculated_emissions_kg_co2e),
         )
-        .join(ConsumptionRecord, ConsumptionRecord.emission_source_id == EmissionSource.id)
+        .select_from(ConsumptionRecord)
+        .outerjoin(EmissionSource, ConsumptionRecord.emission_source_id == EmissionSource.id)
         .join(
             EmissionCalculation,
             EmissionCalculation.consumption_record_id == ConsumptionRecord.id,
@@ -106,13 +110,13 @@ def organization_emissions_by_source_type(
             ConsumptionRecord.recorded_at >= start_dt,
             ConsumptionRecord.recorded_at <= end_dt,
         )
-        .group_by(ConsumptionRecord.facility_id, EmissionSource.source_type)
+        .group_by(ConsumptionRecord.facility_id, source_type)
         .all()
     )
 
     result: dict[int, dict[str, Decimal]] = {facility_id: {} for facility_id in facility_ids}
     for facility_id, source_type, total in rows:
-        result[facility_id][source_type.value] = Decimal(total).quantize(SUMMARY_QUANT, rounding=ROUND_HALF_UP)
+        result[facility_id][source_type] = Decimal(total).quantize(SUMMARY_QUANT, rounding=ROUND_HALF_UP)
     for facility_id in facility_ids:
         by_type = result[facility_id]
         for source_type in SourceTypeEnum:

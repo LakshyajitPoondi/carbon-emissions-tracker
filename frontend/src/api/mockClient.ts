@@ -221,6 +221,8 @@ const products: Product[] = [
     composition: "70% recycled aluminium, 30% primary aluminium",
     emissions_value: "1.250000",
     emissions_unit: "kg CO2e/item",
+    consumption_unit: "item",
+    consumption_source_type: "RESOURCE",
     emissions_description: "Cradle-to-gate embodied emissions per finished bottle",
     source_reference: "Supplier EPD, 2026",
     created_at: "2026-08-01T09:15:00Z",
@@ -287,6 +289,8 @@ function seedConsumptionRecord(
   consumptionRecords.push({
     id: nextId.consumptionRecord++,
     emission_source_id: emissionSourceId,
+    product_id: null,
+    product_snapshot: null,
     facility_id: source.facility_id,
     quantity_consumed: quantity,
     unit: source.unit_of_measurement,
@@ -334,7 +338,16 @@ function requireEmissionSource(id: number): EmissionSource {
 function requireProduct(id: number): Product {
   const product = products.find((item) => item.id === id);
   if (!product) throw new ApiError("NOT_FOUND", `Product ${id} does not exist`, 404);
+  requireOrganization(product.organization_id);
   return product;
+}
+
+function validateProductConfiguration(product: Pick<Product, "consumption_unit" | "consumption_source_type" | "emissions_unit">): void {
+  const { consumption_unit: unit, consumption_source_type: type } = product;
+  if (unit === null && type === null) return;
+  if (!unit || unit.length > 50 || !type || !SOURCE_TYPES.includes(type) || product.emissions_unit !== `kg CO2e/${unit}`) {
+    throw new ApiError("VALIDATION_ERROR", "Set a consumption unit and scope together; emissions unit must be kg CO2e/<consumption unit>", 422);
+  }
 }
 
 function findApplicableFactor(sourceType: SourceType, asOfDate: string): EmissionFactor | undefined {
@@ -360,8 +373,9 @@ function sumBySourceType(facilityId: number, start: string, end: string): Record
     const recordDate = record.recorded_at.slice(0, 10);
     if (recordDate < start || recordDate > end) continue;
     const source = emissionSources.find((s) => s.id === record.emission_source_id);
-    if (!source) continue;
-    totals[source.source_type] += parseFloat(record.calculation.calculated_emissions_kg_co2e);
+    const type = record.product_snapshot?.consumption_source_type ?? source?.source_type;
+    if (!type) continue;
+    totals[type] += parseFloat(record.calculation.calculated_emissions_kg_co2e);
   }
   return {
     ENERGY: totals.ENERGY.toFixed(2),
@@ -774,7 +788,7 @@ export const mockClient: ApiClient = {
 
   async createProduct(req: ProductCreateRequest) {
     await delay();
-    requireOrganization(req.organization_id);
+    requireOrganizationWrite(req.organization_id);
     if (
       !notEmpty(req.name) ||
       !notEmpty(req.composition) ||
@@ -809,11 +823,14 @@ export const mockClient: ApiClient = {
       composition: req.composition.trim(),
       emissions_value: Number(req.emissions_value).toFixed(6),
       emissions_unit: req.emissions_unit.trim(),
+      consumption_unit: req.consumption_unit?.trim() ?? null,
+      consumption_source_type: req.consumption_source_type ?? null,
       emissions_description: req.emissions_description.trim(),
       source_reference: req.source_reference.trim(),
       created_at: now,
       updated_at: now,
     };
+    validateProductConfiguration(product);
     products.push(product);
     return product;
   },
@@ -855,6 +872,13 @@ export const mockClient: ApiClient = {
       throw new ApiError("VALIDATION_ERROR", "At least one product field is required", 422);
     }
     const product = requireProduct(id);
+    requireOrganizationWrite(product.organization_id);
+    const configuration = {
+      consumption_unit: req.consumption_unit === undefined ? product.consumption_unit : req.consumption_unit?.trim() ?? null,
+      consumption_source_type: req.consumption_source_type === undefined ? product.consumption_source_type : req.consumption_source_type,
+      emissions_unit: req.emissions_unit?.trim() ?? product.emissions_unit,
+    };
+    validateProductConfiguration(configuration);
     const barcode = req.barcode === undefined ? product.barcode : req.barcode?.trim() || null;
     if (
       barcode &&
@@ -889,6 +913,7 @@ export const mockClient: ApiClient = {
     }
 
     Object.assign(product, {
+      ...configuration,
       ...(req.name !== undefined ? { name: req.name.trim() } : {}),
       barcode,
       ...(req.composition !== undefined ? { composition: req.composition.trim() } : {}),
@@ -912,12 +937,17 @@ export const mockClient: ApiClient = {
   async deleteProduct(id: number) {
     await delay();
     const product = requireProduct(id);
+    requireOrganizationWrite(product.organization_id);
+    for (const record of consumptionRecords) {
+      if (record.product_id === id) record.product_id = null;
+    }
     products.splice(products.indexOf(product), 1);
   },
 
   async scanAsset(facilityId: number, _image: Blob): Promise<AssetScanResult> {
     await delay();
-    requireFacility(facilityId);
+    const facility = requireFacility(facilityId);
+    requireOrganization(facility.organization_id);
     // The mock has no real image-decoding capability (no barcode/QR library
     // in this project, and adding one just for mock-mode fidelity isn't
     // worth it — the real decode path is only meaningfully testable against
@@ -928,6 +958,10 @@ export const mockClient: ApiClient = {
     // exercisable in mock mode.
     const source = emissionSources.find((s) => s.facility_id === facilityId && s.barcode_value);
     if (!source || !source.barcode_value) {
+      // Simulated lookup only: when there is no source barcode, use an
+      // organization Product. The real backend still decodes the image.
+      const product = products.find((p) => p.organization_id === facility.organization_id && p.barcode);
+      if (product) return { match_type: "product", data: { ...product } };
       throw new ApiError("NO_BARCODE_DETECTED", "No readable barcode found in frame", 422);
     }
     return {
@@ -947,8 +981,51 @@ export const mockClient: ApiClient = {
 
   async createConsumptionRecord(req: ConsumptionRecordCreateRequest) {
     await delay();
+    const facility = requireFacility(req.facility_id);
+    requireOrganization(facility.organization_id);
+    if (req.product_id !== undefined) {
+      const product = requireProduct(req.product_id);
+      if (product.organization_id !== facility.organization_id) {
+        throw new ApiError("NOT_FOUND", `Product ${req.product_id} does not exist`, 404);
+      }
+      if (!product.consumption_unit || !product.consumption_source_type) {
+        throw new ApiError("PRODUCT_NOT_CONFIGURED", "An OWNER or ADMIN must configure this Product's consumption unit and scope in Product Library first", 422);
+      }
+      validateProductConfiguration(product);
+      if (req.unit.trim() !== product.consumption_unit) {
+        throw new ApiError("PRODUCT_UNIT_MISMATCH", `This Product must be logged in ${product.consumption_unit}`, 422);
+      }
+      const quantity = Number(req.quantity_consumed);
+      const emissions = multiply(req.quantity_consumed, product.emissions_value);
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity >= 1e10 ||
+          !/^\d+(?:\.\d{1,4})?$/.test(req.quantity_consumed) ||
+          !Number.isFinite(Number(emissions)) || Number(emissions) >= 1e10 ||
+          !Number.isFinite(Date.parse(req.recorded_at))) {
+        throw new ApiError("VALIDATION_ERROR", "Product quantity, date, or calculated emissions are outside the supported range", 422);
+      }
+      const record: ConsumptionRecord = {
+        id: nextId.consumptionRecord++, emission_source_id: null, product_id: product.id,
+        product_snapshot: {
+          id: product.id, name: product.name, barcode: product.barcode,
+          consumption_unit: product.consumption_unit,
+          consumption_source_type: product.consumption_source_type,
+          emissions_value: product.emissions_value, emissions_unit: product.emissions_unit,
+          emissions_description: product.emissions_description, source_reference: product.source_reference,
+        },
+        facility_id: req.facility_id, quantity_consumed: quantity.toFixed(4), unit: product.consumption_unit,
+        recorded_at: req.recorded_at, created_at: nowIso(),
+        calculation: {
+          id: nextId.calculation++, emission_factor_id: null,
+          calculated_emissions_kg_co2e: emissions, calculation_date: todayDate(),
+        },
+      };
+      consumptionRecords.push(record);
+      return record;
+    }
     const source = requireEmissionSource(req.emission_source_id);
-    requireFacility(req.facility_id);
+    if (source.facility_id !== req.facility_id) {
+      throw new ApiError("SOURCE_FACILITY_MISMATCH", "The source belongs to another facility", 422);
+    }
 
     const asOfDate = req.recorded_at.slice(0, 10);
     const factor = findApplicableFactor(source.source_type, asOfDate);
@@ -963,6 +1040,8 @@ export const mockClient: ApiClient = {
     const record: ConsumptionRecord = {
       id: nextId.consumptionRecord++,
       emission_source_id: req.emission_source_id,
+      product_id: null,
+      product_snapshot: null,
       facility_id: req.facility_id,
       quantity_consumed: req.quantity_consumed,
       unit: req.unit,

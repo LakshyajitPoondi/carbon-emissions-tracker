@@ -5,8 +5,9 @@ import { apiClient } from "../api";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LoadingState } from "../components/LoadingState";
 import { useAppState } from "../context/AppStateContext";
-import type { Product, ProductCreateRequest } from "../types";
+import type { Product, ProductCreateRequest, SourceType } from "../types";
 import { hasOrganizationWriteAccess } from "../utils/organizationRoles";
+import { GHG_SCOPE_SOURCE_TYPES, sourceTypeDisplayLabel } from "../utils/sourceTypePresentation";
 
 interface ProductFormState {
   name: string;
@@ -16,6 +17,8 @@ interface ProductFormState {
   emissionsUnit: string;
   emissionsDescription: string;
   sourceReference: string;
+  consumptionUnit: string;
+  consumptionSourceType: SourceType | "";
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -26,6 +29,8 @@ const EMPTY_FORM: ProductFormState = {
   emissionsUnit: "kg CO2e/item",
   emissionsDescription: "",
   sourceReference: "",
+  consumptionUnit: "",
+  consumptionSourceType: "",
 };
 
 function ProductBarcodeCell({ product }: { product: Product }) {
@@ -176,6 +181,8 @@ function ProductLibraryForOrganization({
       emissionsUnit: product.emissions_unit,
       emissionsDescription: product.emissions_description,
       sourceReference: product.source_reference,
+      consumptionUnit: product.consumption_unit ?? "",
+      consumptionSourceType: product.consumption_source_type ?? "",
     });
     setFormError(null);
     setFeedback(null);
@@ -195,6 +202,8 @@ function ProductLibraryForOrganization({
       emissions_unit: form.emissionsUnit,
       emissions_description: form.emissionsDescription,
       source_reference: form.sourceReference,
+      consumption_unit: form.consumptionSourceType ? form.consumptionUnit : null,
+      consumption_source_type: form.consumptionSourceType || null,
     };
 
     try {
@@ -243,7 +252,8 @@ function ProductLibraryForOrganization({
         <strong>{organizationName}</strong>.
       </p>
       <p className="result-panel__meta">
-        Product figures are reference data and do not feed consumption calculations.
+        Configure a consumption unit and scope to log a Product from its scanned barcode.
+        Logged entries preserve the figure and source used at the time.
       </p>
 
       {canManage ? (
@@ -329,6 +339,30 @@ function ProductLibraryForOrganization({
                 placeholder="Supplier EPD, 2026"
               />
             </div>
+            <div className="card__row">
+              <div className="field">
+                <label htmlFor="product-consumption-scope">Consumption scope (optional)</label>
+                <select id="product-consumption-scope" value={form.consumptionSourceType}
+                  onChange={(event) => setField("consumptionSourceType", event.target.value as SourceType | "")}>
+                  <option value="">Reference only — not enabled for consumption</option>
+                  {GHG_SCOPE_SOURCE_TYPES.map((type) => (
+                    <option key={type} value={type}>{sourceTypeDisplayLabel(type)}</option>
+                  ))}
+                </select>
+              </div>
+              {form.consumptionSourceType && (
+                <div className="field">
+                  <label htmlFor="product-consumption-unit">Consumption unit</label>
+                  <input id="product-consumption-unit" value={form.consumptionUnit} required maxLength={50}
+                    placeholder="item" onChange={(event) => setField("consumptionUnit", event.target.value)} />
+                </div>
+              )}
+            </div>
+            <p className="result-panel__meta">
+              Choose the scope that matches the cited figure’s accounting boundary. When enabled,
+              the emissions unit above must be exactly “kg CO2e/{form.consumptionUnit.trim() || "item"}”.
+              No unit conversion is performed. Avoid logging the same activity as both a Product and an emission source.
+            </p>
             <div className="button-row">
               <button type="submit" disabled={saving}>
                 {saving ? "Saving…" : editing ? "Save changes" : "Add product"}
@@ -377,7 +411,15 @@ function ProductLibraryForOrganization({
                       <td><strong>{product.name}</strong></td>
                       <td><ProductBarcodeCell product={product} /></td>
                       <td>{product.composition}</td>
-                      <td>{product.emissions_value} {product.emissions_unit}</td>
+                      <td>
+                        {product.emissions_value} {product.emissions_unit}
+                        <br />
+                        <span className="result-panel__meta">
+                          {product.consumption_source_type
+                            ? sourceTypeDisplayLabel(product.consumption_source_type)
+                            : "Reference only — consumption not configured"}
+                        </span>
+                      </td>
                       <td>
                         {product.emissions_description}
                         <br />

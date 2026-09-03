@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { apiClient } from "../api";
-import type { AssetScanResult, EmissionSource } from "../types";
+import type { AssetScanResult, ConsumptionRecord, EmissionSource } from "../types";
 import { ErrorBanner } from "./ErrorBanner";
 import { LoadingState } from "./LoadingState";
+import { ProductConsumptionForm } from "./ProductConsumptionForm";
 
 type ScanStatus =
   | "closed"
@@ -20,6 +21,7 @@ interface AssetScanCaptureProps {
    * user can visually confirm before submitting (see docs/api-contract.md's
    * Asset Scan section and the frontend task's requirement #3). */
   onMatched: (source: EmissionSource, decodedValue: string) => void;
+  onProductLogged: (record: ConsumptionRecord) => void;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
@@ -38,11 +40,12 @@ function describeCameraError(err: unknown): string {
   return "Could not access the camera. Select the emission source manually below.";
 }
 
-export function AssetScanCapture({ facilityId, onMatched }: AssetScanCaptureProps) {
+export function AssetScanCapture({ facilityId, onMatched, onProductLogged }: AssetScanCaptureProps) {
   const [status, setStatus] = useState<ScanStatus>("closed");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanError, setScanError] = useState<unknown>(null);
   const [matchedResult, setMatchedResult] = useState<AssetScanResult | null>(null);
+  const [loggingProduct, setLoggingProduct] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -216,13 +219,20 @@ export function AssetScanCapture({ facilityId, onMatched }: AssetScanCaptureProp
                   <p className="result-panel__meta">
                     Source: {matchedResult.data.source_reference}
                   </p>
+                  <ProductConsumptionForm
+                    key={matchedResult.data.id}
+                    product={matchedResult.data}
+                    facilityId={facilityId}
+                    onLogged={onProductLogged}
+                    onBusyChange={setLoggingProduct}
+                  />
                 </>
               )}
               <div className="scan-panel__actions">
-                <button type="button" onClick={handleRetry}>
+                <button type="button" onClick={handleRetry} disabled={loggingProduct}>
                   Scan another
                 </button>
-                <button type="button" className="scan-panel__cancel" onClick={closeScanner}>
+                <button type="button" className="scan-panel__cancel" onClick={closeScanner} disabled={loggingProduct}>
                   Done
                 </button>
               </div>

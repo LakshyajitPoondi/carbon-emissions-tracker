@@ -16,8 +16,8 @@ class EmissionCalculation(Base):
     consumption_record_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("consumption_records.id", ondelete="CASCADE"), nullable=False
     )
-    emission_factor_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("emission_factors.id", ondelete="CASCADE"), nullable=False
+    emission_factor_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("emission_factors.id", ondelete="CASCADE"), nullable=True
     )
     calculated_emissions_kg_co2e: Mapped[Decimal] = mapped_column(
         Numeric(precision=14, scale=4), nullable=False

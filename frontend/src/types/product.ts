@@ -1,4 +1,5 @@
 /** Mirrors Docs/api-contract.md — Product Library. */
+import type { SourceType } from "./emissionSource";
 
 export interface Product {
   id: number;
@@ -8,6 +9,8 @@ export interface Product {
   composition: string;
   emissions_value: string;
   emissions_unit: string;
+  consumption_unit: string | null;
+  consumption_source_type: SourceType | null;
   emissions_description: string;
   source_reference: string;
   created_at: string;
@@ -21,6 +24,8 @@ export interface ProductCreateRequest {
   composition: string;
   emissions_value: string;
   emissions_unit: string;
+  consumption_unit?: string | null;
+  consumption_source_type?: SourceType | null;
   emissions_description: string;
   source_reference: string;
 }
@@ -31,6 +36,8 @@ export interface ProductUpdateRequest {
   composition?: string;
   emissions_value?: string;
   emissions_unit?: string;
+  consumption_unit?: string | null;
+  consumption_source_type?: SourceType | null;
   emissions_description?: string;
   source_reference?: string;
 }

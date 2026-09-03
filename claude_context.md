@@ -64,9 +64,10 @@ authorization backbone — see "Authorization model" below.
 
 `Product` (added by Product Library task) — organization-scoped, manually
 entered catalog: name, nullable-but-unique-per-org barcode, composition
-(free text), emissions_value/unit/description + source_reference. NOT
-wired into the consumption -> emission_factor -> kg CO2e calculation.
-Standalone reference data by design.
+(free text), emissions_value/unit/description + source_reference. Reference-only
+by default. Since item 19, OWNER/ADMIN may explicitly set `consumption_unit`
+and `consumption_source_type` to enable Product consumption using its own
+declared per-unit kg CO2e value (not the seeded emission-source factors).
 
 `Product.barcode_image` (added by item 15) stores the generated PNG bytes.
 Omitting/blanking `barcode` on create allocates an organization-local GS1
@@ -563,7 +564,7 @@ and should continue:
       401. Confirm the frontend's actual API target first; any production hash
       reset must be deliberate rather than silently added to idempotent seed.
 
-18. **Product scan -> consumption gap — diagnosed; implementation pending:**
+18. **Product scan -> consumption gap — diagnosed; superseded by item 19:**
     - `AssetScanCapture` invokes its selection callback only for
       `match_type: emission_source`; Product matches display reference data
       without selecting a consumption input or submitting a record.
@@ -581,6 +582,67 @@ and should continue:
       validated product factor/unit/classification, immutable historical
       snapshot, organization scoping, and downstream aggregation required.
       No implementation or contract changes made in this diagnostic pass.
+    - Follow-up UI requirement: put quantity/date and `Log consumption`
+      directly inside the `Product matched` card; it must save that Product
+      and feed Dashboard totals, never the unrelated emission source below.
+      Explicit confirmation of the proposed API/schema extension requested.
+
+19. **Product matched-card consumption — implemented after explicit approval:**
+    - User confirmed the API/schema extension including Product unit/scope
+      configuration; specifically requested the `Log consumption` button
+      inside `Product matched`, not in the unrelated source form below.
+    - Branch `main`, starting HEAD `2a68c78` (that commit contained only the
+      earlier diagnosis, not feature code). No git mutations performed.
+    - `Docs/api-contract.md` updated first. Product create/update/read/scan
+      shapes add nullable `consumption_unit` and `consumption_source_type`.
+      Both are explicitly configured by OWNER/ADMIN or both null; enabled
+      Products require exact `kg CO2e/{consumption_unit}` notation. Existing
+      Products stay reference-only until configured; no backfill inference,
+      no changes to existing values, no automatic consumption on scan.
+    - `POST /consumption-records` accepts exactly one Product/source ID.
+      Product quantities: positive Numeric(14,4), timezone-aware date,
+      exact configured unit, Decimal half-up result to 4 places. Overflow,
+      unconfigured Products and wrong units return documented 422 errors.
+      All roles can log (ENTRY); Product/facility must share an organization.
+      Cross-organization and inaccessible selections use masked 404.
+    - Migration `0011_product_consumption`: Product configuration columns,
+      nullable source/factor IDs, Product link + immutable JSON snapshot,
+      historical source type, CHECK and composite tenant FK constraints.
+      Product deletion nulls its live link, preserving snapshot + calculations.
+      Downgrade refuses to erase existing Product consumption history.
+    - Business logic: `backend/app/services/product_configuration.py`,
+      `product_consumption.py`; shared `services/reports.py` aggregates both
+      kinds for Dashboard, GraphQL Overview, and new reports. Existing saved
+      reports remain snapshots. Existing WebSocket event carries the expanded
+      record. No new GraphQL fields, emission categories or dependencies.
+    - Frontend: `ProductConsumptionForm.tsx` inside `AssetScanCapture`;
+      quantity defaults visibly to 1, editable date/time, explicit submit,
+      success + Dashboard link, in-flight/after-success click lock, inline
+      errors. Scanning works without any facility emission sources. Recent
+      records show snapshot Product names. Source form remains independent.
+      `ProductLibraryPage` adds role-gated configuration controls; shared
+      scope labels reused. API types/mock adapter and scoped spacing updated.
+    - Verification: existing backend suite 249 passed on migrated development
+      DB; 25 new tests passed on isolated blank-migrated DB; final full suite
+      274 passed (existing dependency deprecations/transaction warnings).
+      Actual generated PNG -> scan (no write) -> explicit Product POST ->
+      list/REST summary/GraphQL/report tested: 2 x 1.250000 = 2.5000 kg CO2e,
+      displayed aggregate 2.50. History survives edit/disable/delete; tenant
+      FK, roles, units, rounding, overflow and live event tested.
+    - Frontend production build and typecheck passed; lint has the same 13
+      existing advisory warnings, no errors. Seven Playwright browser cases
+      cover matched-card save, Dashboard, no-source facility, unconfigured
+      Product, retry, source logging, mock parity and OWNER configuration.
+      Browser uses simulated camera/API responses; physical webcam and
+      production deployment not exercised. Screenshots inspected for card
+      layout and Dashboard 2.50 total. Initial harness intercept/readiness/
+      click synchronization issues corrected; temporary event tracing removed.
+    - Local migration applied; report worker restarted only after confirming
+      it was idle. Real-mode Vite started on 127.0.0.1:5173; .env.local unchanged.
+      Local frontend returns 200 and backend /health reports ok. No deployment.
+    - Retained isolated verification database
+      `carbon_product_consumption_verify_20260903` (reference seed + rollback-
+      scoped tests); no development DB reset, DROP, or volume removal.
 
 ## Open items / not yet done (as of this handoff)
 

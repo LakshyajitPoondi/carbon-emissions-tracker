@@ -26,7 +26,7 @@ export function ConsumptionPage() {
     );
   }
 
-  return <ConsumptionForFacility facilityId={facility.id} facilityName={facility.name} />;
+  return <ConsumptionForFacility key={facility.id} facilityId={facility.id} facilityName={facility.name} />;
 }
 
 function ConsumptionForFacility({ facilityId, facilityName }: { facilityId: number; facilityName: string }) {
@@ -112,6 +112,11 @@ function ConsumptionForFacility({ facilityId, facilityName }: { facilityId: numb
       </p>
 
       <section className="card">
+        <AssetScanCapture
+          facilityId={facilityId}
+          onMatched={(source) => setEmissionSourceId(source.id)}
+          onProductLogged={() => void loadRecords()}
+        />
         {sourcesStatus === "loading" && <LoadingState label="Loading emission sources…" />}
         {sourcesStatus === "error" && <ErrorBanner error={sourcesError} onRetry={loadSources} />}
         {sourcesStatus === "ready" && sources.length === 0 && (
@@ -120,14 +125,8 @@ function ConsumptionForFacility({ facilityId, facilityName }: { facilityId: numb
           </p>
         )}
         {sourcesStatus === "ready" && sources.length > 0 && (
-          <AssetScanCapture
-            facilityId={facilityId}
-            onMatched={(source) => setEmissionSourceId(source.id)}
-          />
-        )}
-
-        {sourcesStatus === "ready" && sources.length > 0 && (
           <form onSubmit={handleSubmit} className="card__col">
+            <h3>Manual emission-source entry</h3>
             <div className="field">
               <label htmlFor="consumption-source">Emission source</label>
               <select
@@ -200,7 +199,7 @@ function ConsumptionForFacility({ facilityId, facilityName }: { facilityId: numb
               <thead>
                 <tr>
                   <th scope="col">Recorded at</th>
-                  <th scope="col">Source</th>
+                  <th scope="col">Source / Product</th>
                   <th scope="col">Quantity</th>
                   <th scope="col">Emissions (kg CO2e)</th>
                 </tr>
@@ -211,7 +210,7 @@ function ConsumptionForFacility({ facilityId, facilityName }: { facilityId: numb
                   return (
                     <tr key={r.id}>
                       <td>{formatDateTime(r.recorded_at)}</td>
-                      <td>{source ? source.source_name : `Source #${r.emission_source_id}`}</td>
+                      <td>{r.product_snapshot ? `${r.product_snapshot.name} (Product)` : source ? source.source_name : `Source #${r.emission_source_id}`}</td>
                       <td>
                         {r.quantity_consumed} {r.unit}
                       </td>

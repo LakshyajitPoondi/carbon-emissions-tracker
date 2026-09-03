@@ -39,6 +39,8 @@ class Product(Base):
         Numeric(precision=18, scale=6), nullable=False
     )
     emissions_unit: Mapped[str] = mapped_column(String(100), nullable=False)
+    consumption_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    consumption_source_type: Mapped[str | None] = mapped_column(String(8), nullable=True)
     emissions_description: Mapped[str] = mapped_column(Text, nullable=False)
     source_reference: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -56,6 +58,16 @@ class Product(Base):
     organization = relationship("Organization", back_populates="products")
 
     __table_args__ = (
+        UniqueConstraint("id", "organization_id", name="uq_products_id_organization_id"),
+        CheckConstraint(
+            "(consumption_unit IS NULL AND consumption_source_type IS NULL) OR "
+            "(consumption_unit IS NOT NULL AND consumption_source_type IS NOT NULL "
+            "AND consumption_source_type IN ('ENERGY', 'FUEL', 'RESOURCE') "
+            "AND length(trim(consumption_unit)) > 0 "
+            "AND consumption_unit = trim(consumption_unit) "
+            "AND emissions_unit = 'kg CO2e/' || consumption_unit)",
+            name="ck_products_consumption_configuration",
+        ),
         # The same real-world SKU can appear in separate organizations'
         # libraries. Within one organization a non-null barcode identifies a
         # single product; NULL remains repeatable for not-yet-known barcodes.
